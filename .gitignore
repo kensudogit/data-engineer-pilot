@@ -4,6 +4,7 @@ backend/**/__pycache__/
 backend/.pytest_cache/
 backend/venv/
 backend/.venv/
+backend/etl_output/
 frontend/node_modules/
 frontend/.next/
 frontend/tsconfig.tsbuildinfo

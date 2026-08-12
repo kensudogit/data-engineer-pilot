@@ -108,3 +108,34 @@ export interface OverviewResponse extends Sourced {
   total_revenue: number;
   summaries: UseCaseSummary[];
 }
+
+// Cortex Analyst / Cortex Agent deliberately do NOT extend Sourced — they
+// have no demo/bigquery equivalent at all, so `source` is always the
+// literal "snowflake" and the backend returns 503 (not a Sourced body)
+// when unavailable. See api.ts's askCortexAnalyst/askCortexAgent for how
+// that 503 is turned into the CortexUnavailable shape below instead of a
+// thrown error, so the /ask page can render an honest "unavailable by
+// design" state rather than an error screen.
+
+export interface CortexAnalystResponse {
+  source: "snowflake";
+  question: string;
+  generated_sql: string | null;
+  answer: string;
+}
+
+export interface CortexAgentResponse {
+  source: "snowflake";
+  question: string;
+  answer: string;
+  citations: Record<string, unknown>[];
+}
+
+export interface CortexUnavailable {
+  available: false;
+  message: string;
+  execution_mode: string;
+}
+
+export type CortexAnalystResult = ({ available: true } & CortexAnalystResponse) | CortexUnavailable;
+export type CortexAgentResult = ({ available: true } & CortexAgentResponse) | CortexUnavailable;

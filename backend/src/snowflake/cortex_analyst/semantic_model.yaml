@@ -1,0 +1,201 @@
+# Cortex Analyst semantic model — describes the MART tables so natural-
+# language questions (via backend/src/api/cortex_analyst.py, only reachable
+# when EXECUTION_MODE=snowflake) can be translated to SQL.
+#
+# Standalone semantic-model-file mechanism (not the newer `CREATE SEMANTIC
+# VIEW` SQL object) — this file is PUT onto a Snowflake stage
+# (backend/scripts/provision_snowflake.py --upload-semantic-model) and
+# referenced by REST API calls as `@<database>.mart.semantic_models/semantic_model.yaml`.
+#
+# MEDIUM CONFIDENCE: written from Snowflake's documented semantic model
+# spec but never validated against a real Cortex Analyst call this
+# session (no live account). Re-verify exact key names against
+# https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-analyst/semantic-model-spec
+# before a real deployment — same "correct syntax, undeployed" disclosure
+# as the rest of this project's Snowflake SQL.
+#
+# `database` below assumes the default DATA_ENGINEER_PILOT — adjust if you
+# provisioned under a different --database value.
+
+name: data_engineer_pilot_mart
+description: >
+  EC/SaaSパイロットのDATA MART層（売上・解約予測用顧客特徴量・商品需要・取引特徴量）に対する
+  自然言語質問をSQLへ変換するためのセマンティックモデル。
+
+tables:
+  - name: daily_sales
+    description: チャネル別の日次売上集計（売上予測の入力データ）
+    base_table:
+      database: DATA_ENGINEER_PILOT
+      schema: MART
+      table: DAILY_SALES
+    dimensions:
+      - name: channel
+        expr: channel
+        data_type: VARCHAR
+        description: 販売チャネル（オンライン・モバイルアプリ・マーケットプレイス等）
+        synonyms: ["販売経路", "チャネル"]
+    time_dimensions:
+      - name: order_date
+        expr: order_date
+        data_type: DATE
+        description: 注文日
+    facts:
+      - name: total_amount
+        expr: total_amount
+        data_type: NUMBER
+        description: その日・そのチャネルの合計売上金額（円）
+        synonyms: ["売上", "売上高", "合計金額"]
+
+  - name: customer_features
+    description: 顧客ごとの時点指定RFM特徴量（解約予測・顧客分類の入力データ、複数スナップショット）
+    base_table:
+      database: DATA_ENGINEER_PILOT
+      schema: MART
+      table: CUSTOMER_FEATURES
+    primary_key:
+      columns: [customer_id, snapshot_date]
+    dimensions:
+      - name: customer_id
+        expr: customer_id
+        data_type: VARCHAR
+        description: 顧客ID
+      - name: plan_type
+        expr: plan_type
+        data_type: VARCHAR
+        description: 契約プラン種別（basic/standard/premium）
+        synonyms: ["プラン", "契約プラン"]
+      - name: region
+        expr: region
+        data_type: VARCHAR
+        description: 顧客の地域
+      - name: churned_next_30d
+        expr: churned_next_30d
+        data_type: BOOLEAN
+        description: このスナップショットから30日以内に解約したかどうか（解約予測モデルの学習ラベル）
+        synonyms: ["解約フラグ", "チャーン"]
+    time_dimensions:
+      - name: snapshot_date
+        expr: snapshot_date
+        data_type: DATE
+        description: 特徴量のスナップショット基準日
+    facts:
+      - name: recency_days
+        expr: recency_days
+        data_type: NUMBER
+        description: 最終注文からの経過日数
+        synonyms: ["直近性"]
+      - name: frequency_90d
+        expr: frequency_90d
+        data_type: NUMBER
+        description: 直近90日の注文回数
+        synonyms: ["購入頻度"]
+      - name: monetary_90d
+        expr: monetary_90d
+        data_type: NUMBER
+        description: 直近90日の購入金額合計
+        synonyms: ["購入金額", "消費額"]
+      - name: avg_order_value
+        expr: avg_order_value
+        data_type: NUMBER
+        description: 直近90日の平均注文単価
+      - name: tenure_days
+        expr: tenure_days
+        data_type: NUMBER
+        description: 登録からの在籍日数
+
+  - name: daily_product_demand
+    description: 商品別の日次販売数量（需要予測の入力データ、売上上位20商品限定）
+    base_table:
+      database: DATA_ENGINEER_PILOT
+      schema: MART
+      table: DAILY_PRODUCT_DEMAND
+    dimensions:
+      - name: product_id
+        expr: product_id
+        data_type: VARCHAR
+        description: 商品ID
+    time_dimensions:
+      - name: order_date
+        expr: order_date
+        data_type: DATE
+        description: 注文日
+    facts:
+      - name: quantity_sold
+        expr: quantity_sold
+        data_type: NUMBER
+        description: その日その商品の販売数量
+        synonyms: ["販売数", "需要"]
+
+  - name: order_transaction_features
+    description: 注文単位の取引特徴量（異常検知の入力データ）
+    base_table:
+      database: DATA_ENGINEER_PILOT
+      schema: MART
+      table: ORDER_TRANSACTION_FEATURES
+    primary_key:
+      columns: [order_id]
+    dimensions:
+      - name: order_id
+        expr: order_id
+        data_type: VARCHAR
+        description: 注文ID
+      - name: customer_id
+        expr: customer_id
+        data_type: VARCHAR
+        description: 顧客ID
+    time_dimensions:
+      - name: order_date
+        expr: order_date
+        data_type: DATE
+        description: 注文日
+    facts:
+      - name: order_amount
+        expr: order_amount
+        data_type: NUMBER
+        description: 注文金額
+      - name: item_count
+        expr: item_count
+        data_type: NUMBER
+        description: 注文点数
+      - name: discount_pct
+        expr: discount_pct
+        data_type: NUMBER
+        description: 割引率（平均）
+      - name: avg_unit_price
+        expr: avg_unit_price
+        data_type: NUMBER
+        description: 平均単価
+      - name: hours_since_last_order
+        expr: hours_since_last_order
+        data_type: NUMBER
+        description: 同一顧客の前回注文からの経過時間（時間単位）
+
+verified_queries:
+  - name: monthly_revenue_by_channel
+    question: チャネル別の月次売上を教えて
+    sql: >
+      SELECT DATE_TRUNC('month', order_date) AS month, channel, SUM(total_amount) AS revenue
+      FROM DATA_ENGINEER_PILOT.MART.DAILY_SALES
+      GROUP BY 1, 2
+      ORDER BY 1, 2
+
+  - name: high_risk_customer_count_by_region
+    question: 地域別の解約リスクが高い顧客数を教えて
+    sql: >
+      SELECT region, COUNT(*) AS high_risk_customers
+      FROM DATA_ENGINEER_PILOT.MART.CUSTOMER_FEATURES
+      WHERE churned_next_30d = TRUE
+        AND snapshot_date = (SELECT MAX(snapshot_date) FROM DATA_ENGINEER_PILOT.MART.CUSTOMER_FEATURES)
+      GROUP BY 1
+      ORDER BY 2 DESC
+
+  - name: top_products_by_demand
+    question: 直近30日で最も需要が多い商品トップ5は？
+    sql: >
+      SELECT product_id, SUM(quantity_sold) AS total_quantity
+      FROM DATA_ENGINEER_PILOT.MART.DAILY_PRODUCT_DEMAND
+      WHERE order_date >= DATEADD('day', -30, CURRENT_DATE())
+      GROUP BY 1
+      ORDER BY 2 DESC
+      LIMIT 5

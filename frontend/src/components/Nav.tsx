@@ -8,6 +8,7 @@ const LINKS = [
   { href: "/segmentation", label: "顧客分類" },
   { href: "/anomaly", label: "異常検知" },
   { href: "/demand-forecast", label: "需要予測" },
+  { href: "/ask", label: "AIに質問する" },
 ];
 
 export default function Nav() {

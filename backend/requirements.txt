@@ -9,6 +9,9 @@ snowflake-connector-python==4.7.2
 snowflake-snowpark-python==1.54.0
 snowflake-ml-python==1.50.0
 openai==1.109.1
+psycopg2-binary==2.9.12
+boto3==1.43.70
+pyyaml==6.0.3
 pandas==2.2.3
 numpy==2.2.1
 scikit-learn==1.6.0

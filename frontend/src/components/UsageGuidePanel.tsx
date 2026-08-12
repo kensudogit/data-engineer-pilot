@@ -32,7 +32,9 @@ type FeaturedBlock = {
     | "prompt"
     | "eval"
     | "agent"
-    | "deploy";
+    | "deploy"
+    | "pipeline"
+    | "cortex";
 };
 
 const valueFeatured: FeaturedBlock = {
@@ -79,6 +81,39 @@ const snowflakeFeatured: FeaturedBlock = {
     "Snowpark ML（Python、Cortexとは別のライブラリ）— 顧客分類はKMeans、異常検知はIsolationForest。クラスタリングや多変量取引異常検知にはCortex ML Functionsの組み込み関数が存在しないための選択（BigQuery版がKMEANS距離ではなくAUTOENCODERを選んだのと同じ理由）",
     "Cortex LLM Functions（生成AI）— SNOWFLAKE.CORTEX.COMPLETEで各ユースケースの結果を要約する自然文「AIインサイト」を生成し、各機能ページに表示",
     "provision_snowflake.py — DDL適用・データ投入・Cortex ML Functionsオブジェクト作成をBigQuery版provision_bigquery.pyと同じCLI構造で提供（未実行・未検証）",
+  ],
+};
+
+const postgresEtlFeatured: FeaturedBlock = {
+  badge: "ETL",
+  title: "PostgreSQL → Python ETL（実装・Docker検証済み）",
+  body:
+    "デモ経路（generate_dataset()をインメモリで読む既存5機能）とは別の、並行するデータ取り込み経路です。上流の業務システムを模したPostgreSQLコンテナに合成データを実際に投入し、Pythonで抽出してローカルParquetへ書き出すところまでを、今回のセッションで実際にDockerで動作確認しています。本プロジェクトで初めて「クラウド接続を要さずに実データフローがend-to-endで検証できた」区間です。",
+  variant: "pipeline",
+  items: [
+    "起動 — docker compose up -d postgres（ホストポート5433、他案件の5432と衝突回避）",
+    "スキーマ作成・シード — python -m src.etl.postgres_source --create-schema --seed（RAW 5テーブル、FK制約・インデックス付き）",
+    "ETL実行 — python -m src.etl.run_etl（実測: customers 600・subscriptions 600・products 40・orders 8037・order_items 19994件を抽出）",
+    "出力 — backend/etl_output/<table>/run_date=<date>/<table>.parquet（S3キー構造と1:1で対応するHive形式パーティション）",
+    "S3アップロードは条件付き — AWS認証情報が未設定ならWARNログを出して静かにスキップ（--strict-s3指定時のみ例外）。BigQuery/Snowflake経路の「fail loudly」原則とは意図的に異なる契約 — ローカルParquet書き出し自体が本区間の検証対象で、S3以降は最初から未検証と明示されているため",
+    "テスト — pytest（実PostgreSQL接続時のみ実行、docker compose up postgresが未起動ならpytest.skipで自動スキップし既存の「外部依存なしで全テストが通る」保証を維持）",
+  ],
+};
+
+const cortexPipelineFeatured: FeaturedBlock = {
+  badge: "Pipeline",
+  title: "S3 → Snowpipe → MART → Power BI / Cortex Analyst / Cortex Agent（未実行・未検証）",
+  body:
+    "PostgreSQL/ETLより先の区間は、これまでのBigQuery/Snowflake実装と同じ方針で用意しています — 公式ドキュメントの構文に基づく正しいコード・SQL・設定ですが、実際のAWS/Snowflakeアカウントに対しては今回のセッションでは未実行・未検証です。",
+  variant: "cortex",
+  items: [
+    "Snowpipe — STORAGE INTEGRATION（IAMロールベース）+ 外部ステージ + AUTO_INGEST=TRUE のPIPE。デプロイ後に手動AWS作業が2つ必要（① DESC STORAGE INTEGRATIONで得たIAM ARN/External IDをAWS側の信頼ポリシーに登録、② SHOW PIPESで得たSQS ARNをS3イベント通知に登録 — これを忘れるとAUTO_INGEST=TRUEだけでは何も起きない）",
+    "Cortex Search — 合成FAQ・運用マニュアル6文書（backend/src/data/documents/）をmart.support_documentsへロードし、CORTEX SEARCH SERVICEを作成",
+    "Cortex Analyst — MARTスキーマ4テーブルのセマンティックモデル（YAML）をステージへ配置し自然言語→SQLに対応。新規の認証要件 — キーペア/OAuthまたはProgrammatic Access Token（PAT）が必要（既存のSnowpark接続はユーザー名/パスワードのみのため、これは新規の未対応事項）",
+    "Cortex Agent — Cortex Search（文書検索）とCortex Analyst（MART検索）を横断するツール呼び出し型API。レスポンスは本来SSEストリーミングだが、本実装ではバッファリングして単一JSONとして返す簡略化を採用（構文の確信度も本プロジェクトで最も低く、要再確認）",
+    "Power BI — Snowflake向けの正式な.pbidsプロトコル文字列は公式ドキュメントに存在しないため使用せず、手動接続手順（connection_guide.md）+ 実在するPower Query M関数Snowflake.Databases()のスニペットを提供",
+    "APIゲート — /api/cortex-analyst/ask・/api/cortex-agent/askはEXECUTION_MODE=snowflake以外では常にHTTP 503（構造化JSON）を返す。この2機能にはデモ/BigQuery相当の経路が一切存在しないため、200+フラグではなく503でサービス未提供を表現",
+    "画面 — /ask（AIに質問する）で確認可能。EXECUTION_MODE=demo（既定）では「Snowflake接続時のみ利用可能」の開示のみが表示される（本セッションで確認済み）",
   ],
 };
 
@@ -184,6 +219,11 @@ const techStack = [
   "Next.js 15 · React 19",
   "TypeScript · CSS Modules · recharts",
   "google-cloud-bigquery / snowflake-snowpark-python（実経路）",
+  "PostgreSQL 16（Docker、実装・検証済み）",
+  "psycopg2 / boto3（ETL → S3、実装・検証済み〜未検証）",
+  "Snowpipe（STORAGE INTEGRATION、未実行・未検証）",
+  "Cortex Search / Cortex Analyst / Cortex Agent（未実行・未検証）",
+  "Power BI（Power Query M、未検証）",
   "Docker Compose",
 ] as const;
 
@@ -206,7 +246,26 @@ Next.js :3030 (local) / :3000 (container)
                     └─ snowflake/client.py — Cortex ML Functions (FORECAST/CLASSIFICATION)
                        + Snowpark ML (KMeans/IsolationForest)
                        + Cortex LLM COMPLETE でAIインサイトを実生成
-              全レスポンス共通: source: "demo" | "bigquery" | "snowflake"`;
+              全レスポンス共通: source: "demo" | "bigquery" | "snowflake"
+
+並行するデータ取り込み経路（既存5機能のデモ経路とは独立、追加のみ）:
+PostgreSQL（Docker, 実装・検証済み）
+    │ python -m src.etl.postgres_source --create-schema --seed
+    ▼
+Python ETL（実装・検証済み）
+    │ python -m src.etl.run_etl → backend/etl_output/*.parquet（実測）
+    ▼
+Amazon S3（未検証、認証情報なければ静かにskip）
+    ▼
+Snowpipe（未実行・未検証、STORAGE INTEGRATION + AUTO_INGEST）
+    ▼
+Snowflake RAW → STAGING → DATA MART
+    ├──→ Power BI（connection_guide.md、未検証）
+    ├──→ Cortex Analyst（/api/cortex-analyst/ask、未実行・未検証）
+    └──→ Cortex Agent（/api/cortex-agent/ask、未実行・未検証）
+              └─ Cortex Search → PDF/FAQ/文書（合成6文書）
+   Cortex Analyst/Agentは demo/bigquery相当の経路が無く、
+   EXECUTION_MODE=snowflake以外では常にHTTP 503を返す（/askで確認可）`;
 
 type GuideSection = {
   label: string;
@@ -222,7 +281,7 @@ const guideSections: readonly GuideSection[] = [
         body: "本パネルは全画面で表示されます。PC ではヘッダーをドラッグして位置を変更でき、▼▲ で折りたたみ可能です。",
         items: [
           "PC — ヘッダーをドラッグで移動 · ▼▲ で開閉 · 位置はブラウザに自動保存",
-          "ナビ — 概要 · 売上予測 · 解約予測 · 顧客分類 · 異常検知 · 需要予測",
+          "ナビ — 概要 · 売上予測 · 解約予測 · 顧客分類 · 異常検知 · 需要予測 · AIに質問する",
           "推奨フロー — 概要でサマリ確認 → 各機能ページで詳細・グラフを確認",
         ],
       },
@@ -324,6 +383,48 @@ const guideSections: readonly GuideSection[] = [
     ],
   },
   {
+    label: "データパイプライン拡張（PostgreSQL→ETL→S3→Snowpipe→MART→BI/AI）",
+    steps: [
+      {
+        title: "① PostgreSQL + ETL（実行して確認可能）",
+        body: "既存5機能のデモ経路とは独立した、並行するデータ取り込み経路です。ここまでは今回のセッションで実際にDockerで動作検証しています。",
+        items: [
+          "docker compose up -d postgres（ホストポート5433）",
+          "cd backend && python -m src.etl.postgres_source --create-schema --seed",
+          "python -m src.etl.run_etl → backend/etl_output/<table>/run_date=<date>/<table>.parquet が生成されることを確認",
+          "AWS認証情報（AWS_ACCESS_KEY_ID等）を設定すればS3へも自動アップロード、未設定ならWARNログを出して静かにスキップ（--strict-s3で例外化も可能）",
+        ],
+      },
+      {
+        title: "② Snowpipe（未実行・未検証、正しい構文）",
+        body: "backend/src/snowflake/ddl/01b_snowpipe.sqlをSnowflake側で適用した後、2つの手動AWS作業が必要です。",
+        items: [
+          "python -m scripts.provision_snowflake --apply-snowpipe-ddl --s3-bucket YOUR_BUCKET --storage-role-arn arn:aws:iam::...:role/...",
+          "① DESC STORAGE INTEGRATIONで得たSTORAGE_AWS_IAM_USER_ARN/STORAGE_AWS_EXTERNAL_IDをAWS側IAMロールの信頼ポリシーに登録",
+          "② SHOW PIPESで得たnotification_channel（自動作成されたSQS ARN）をS3バケットのイベント通知（ObjectCreated）に登録 — これを忘れるとAUTO_INGEST=TRUEだけでは取り込まれない",
+        ],
+      },
+      {
+        title: "③ Cortex Search / Cortex Analyst / Cortex Agent（未実行・未検証、正しい構文）",
+        body: "MARTデータと合成FAQ・運用マニュアル文書に対するAI機能です。demo/bigquery相当の経路は存在しません。",
+        items: [
+          "python -m scripts.provision_snowflake --load-documents（合成6文書をmart.support_documentsへロードしCORTEX SEARCH SERVICEを作成）",
+          "python -m scripts.provision_snowflake --upload-semantic-model（semantic_model.yamlをステージへ配置）",
+          "認証 — Cortex Analyst/AgentのREST APIはキーペア/OAuthまたはPAT（Programmatic Access Token）が必要（SNOWFLAKE_PAT環境変数）。既存のSnowpark接続（ユーザー名/パスワード）とは別の認証経路",
+          "確認 — フロントエンドの /ask ページから質問。EXECUTION_MODE=snowflake以外では常に503を返し「Snowflake接続時のみ利用可能」と表示される（本セッションで確認済みの唯一の実挙動）",
+        ],
+      },
+      {
+        title: "④ Power BI（実在する手順のみ使用）",
+        body: "Snowflake向けの正式な.pbidsプロトコル文字列は存在しないため、手動接続手順を使用します。",
+        items: [
+          "backend/src/snowflake/powerbi/connection_guide.md — Get Data→Snowflakeの手動接続手順 + Power Query M関数 Snowflake.Databases() のスニペット",
+          "backend/src/snowflake/powerbi/semantic_model_notes.md — テーブル関連・DAXメジャー例",
+        ],
+      },
+    ],
+  },
+  {
     label: "ローカル開発・運用",
     steps: [
       {
@@ -356,6 +457,9 @@ const guideSections: readonly GuideSection[] = [
           "オンライン学習・モデルのバージョニング・Snowflake Model Registry連携は未実装 — 再学習が必要な場合はプロセスの再起動で対応",
           "需要予測は売上上位20商品に限定 — コスト対策のため（time_series_id_col/SERIES_COLNAME使用時、系列数に比例して学習コストが増加）",
           "合成データはseed=42で完全に決定的 — 実データではないため、数値そのものに業務的な意味はない",
+          "S3・Snowpipe・Cortex Search・Cortex Analyst・Cortex Agent・Power BIは未実行・未検証 — 公式構文に基づき作成していますが、実AWS/Snowflakeアカウントでの動作確認は利用者側で行ってください。実行検証済みなのはPostgreSQL→Python ETL→ローカルParquetの区間のみです",
+          "Cortex Analyst/Agentは新規の認証要件（キーペア/OAuthまたはPAT）が必要 — 既存のSnowpark接続（ユーザー名/パスワード）だけでは動作しません",
+          "Cortex AgentのレスポンスはSSEストリーミングが正式仕様ですが、本実装は単一JSONへバッファリングする簡略化を採用しています（忠実なストリーミング実装ではありません）",
         ],
       },
       {
@@ -367,6 +471,8 @@ const guideSections: readonly GuideSection[] = [
           "特定の商品/チャネルが選択肢に出ない — 需要予測は売上上位20商品限定、履歴データ点数が少なすぎる系列はMIN_HISTORY_POINTSにより自動除外",
           "起動が失敗する（EXECUTION_MODE=bigquery/snowflake時）— 接続失敗による意図的な起動失敗です。認証情報・プロジェクトID(またはアカウント)・権限を確認",
           "pytestの精度系テストが失敗する — seed=42での実測値を基準にした閾値のため、合成データ生成ロジックを変更した場合は再学習後の実測値に合わせて閾値を見直してください",
+          "PostgreSQL関連テストが自動でスキップされる — docker compose up postgresが未起動の場合の正常動作（pytest.skip）。実行するにはPostgreSQLコンテナを起動してから再度pytestを実行",
+          "/ask で常に「Snowflake接続時のみ利用可能」と表示される — EXECUTION_MODE=demoが既定のため正常動作。Cortex Analyst/Agentにはデモ相当の経路が存在しないため、これは他5機能と異なりバグではない",
         ],
       },
     ],
@@ -425,6 +531,8 @@ const variantClass: Record<NonNullable<FeaturedBlock["variant"]>, string> = {
   eval: styles.featuredEval,
   agent: styles.featuredAgent,
   deploy: styles.featuredDeploy,
+  pipeline: styles.featuredPipeline,
+  cortex: styles.featuredCortex,
 };
 
 function FeaturedSection({ block }: { block: FeaturedBlock }) {
@@ -609,6 +717,8 @@ export function UsageGuidePanel() {
           <FeaturedSection block={anomalyFeatured} />
           <FeaturedSection block={demandFeatured} />
           <FeaturedSection block={snowflakeFeatured} />
+          <FeaturedSection block={postgresEtlFeatured} />
+          <FeaturedSection block={cortexPipelineFeatured} />
           <FeaturedSection block={deployFeatured} />
 
           <p className={styles.scrollHint}>{L.scrollHint}</p>

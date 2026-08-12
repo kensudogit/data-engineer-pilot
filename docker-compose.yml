@@ -1,4 +1,21 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: dep-postgres
+    environment:
+      POSTGRES_DB: data_engineer_pilot
+      POSTGRES_USER: dep
+      POSTGRES_PASSWORD: dep_local_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - dep-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dep -d data_engineer_pilot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   backend:
     build:
       context: ./backend
@@ -29,3 +46,6 @@ services:
       - /app/node_modules
       - /app/.next
     command: npm run dev
+
+volumes:
+  dep-postgres-data:

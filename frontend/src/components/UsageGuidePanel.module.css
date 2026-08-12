@@ -325,6 +325,24 @@
   background: linear-gradient(135deg, #fb923c, #f59e0b);
 }
 
+.featuredPipeline {
+  border-color: rgba(20, 184, 166, 0.4);
+  background: linear-gradient(135deg, rgba(204, 251, 241, 0.95), rgba(224, 231, 255, 0.75));
+}
+
+.featuredPipeline .featuredBadge {
+  background: linear-gradient(135deg, #14b8a6, #0ea5e9);
+}
+
+.featuredCortex {
+  border-color: rgba(100, 116, 139, 0.4);
+  background: linear-gradient(135deg, rgba(226, 232, 240, 0.95), rgba(237, 233, 254, 0.7));
+}
+
+.featuredCortex .featuredBadge {
+  background: linear-gradient(135deg, #64748b, #6366f1);
+}
+
 .featuredHead {
   display: flex;
   align-items: center;

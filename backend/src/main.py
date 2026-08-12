@@ -8,6 +8,8 @@ from fastapi.responses import HTMLResponse
 
 from src.api.anomaly import router as anomaly_router
 from src.api.churn import router as churn_router
+from src.api.cortex_agent import router as cortex_agent_router
+from src.api.cortex_analyst import router as cortex_analyst_router
 from src.api.demand_forecast import router as demand_forecast_router
 from src.api.overview import router as overview_router
 from src.api.sales_forecast import router as sales_forecast_router
@@ -78,6 +80,8 @@ app.add_middleware(
 )
 
 app.include_router(overview_router)
+app.include_router(cortex_analyst_router)
+app.include_router(cortex_agent_router)
 app.include_router(sales_forecast_router)
 app.include_router(churn_router)
 app.include_router(segmentation_router)

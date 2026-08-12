@@ -26,35 +26,25 @@ import argparse
 import os
 from pathlib import Path
 
+from src.snowflake.sql_utils import render_sql
+
 SQL_DIR = Path(__file__).resolve().parent.parent / "src" / "snowflake"
 
 DATABASE_DDL_FILES = ["ddl/00_database_warehouse.sql"]
 TABLE_DDL_FILES = ["ddl/01_raw.sql", "ddl/02_staging.sql", "ddl/03_dwh.sql", "ddl/04_mart.sql"]
+SNOWPIPE_DDL_FILES = ["ddl/01b_snowpipe.sql"]
 CORTEX_ML_FILES = [
     "cortex/01_sales_forecast_model.sql",
     "cortex/02_churn_model.sql",
     "cortex/03_demand_forecast_model.sql",
 ]
+CORTEX_SEARCH_DDL_FILES = ["cortex_search/01_documents_table.sql", "cortex_search/02_search_service.sql"]
 
 
-def _render_sql(relative_path: str, warehouse: str, database: str) -> list[str]:
-    text = (SQL_DIR / relative_path).read_text(encoding="utf-8")
-    text = text.replace("@warehouse", warehouse).replace("@database", database)
-    # Each .sql file is a semicolon-separated multi-statement script;
-    # Snowpark's session.sql() runs one statement per call (unlike
-    # BigQuery's client.query(), which accepts a whole script per job), so
-    # split on ';' and drop empty/comment-only fragments.
-    statements = []
-    for raw_stmt in text.split(";"):
-        stmt = "\n".join(line for line in raw_stmt.splitlines() if not line.strip().startswith("--")).strip()
-        if stmt:
-            statements.append(stmt)
-    return statements
-
-
-def _run_sql_files(session, files: list[str], warehouse: str, database: str) -> None:
+def _run_sql_files(session, files: list[str], replacements: dict[str, str]) -> None:
     for relative_path in files:
-        statements = _render_sql(relative_path, warehouse, database)
+        text = (SQL_DIR / relative_path).read_text(encoding="utf-8")
+        statements = render_sql(text, replacements)
         print(f"applying {relative_path} ({len(statements)} statement(s)) ...")
         for stmt in statements:
             session.sql(stmt).collect()
@@ -89,11 +79,37 @@ def main() -> None:
     parser.add_argument("--apply-ddl", action="store_true", help="create warehouse/database/schemas + RAW/STAGING/DWH/MART tables")
     parser.add_argument("--load-raw", action="store_true", help="load the synthetic dataset into the RAW tables")
     parser.add_argument("--create-models", action="store_true", help="create the 3 Cortex ML Functions objects (FORECAST x2, CLASSIFICATION)")
+    parser.add_argument(
+        "--apply-snowpipe-ddl",
+        action="store_true",
+        help="create the storage integration, external stage, and 5 auto-ingest pipes (requires --s3-bucket and --storage-role-arn; two manual AWS console steps still required after this — see ddl/01b_snowpipe.sql's header comment)",
+    )
+    parser.add_argument("--s3-bucket", help="S3 bucket name (no s3:// prefix), required with --apply-snowpipe-ddl")
+    parser.add_argument("--storage-role-arn", help="AWS IAM role ARN for the storage integration, required with --apply-snowpipe-ddl")
+    parser.add_argument(
+        "--load-documents",
+        action="store_true",
+        help="create mart.support_documents + the Cortex Search service, and load backend/src/data/documents/*.md into it",
+    )
+    parser.add_argument(
+        "--upload-semantic-model",
+        action="store_true",
+        help="create the mart.semantic_models stage and PUT the Cortex Analyst semantic_model.yaml onto it",
+    )
     args = parser.parse_args()
 
-    if not (args.apply_ddl or args.load_raw or args.create_models):
+    if not (
+        args.apply_ddl
+        or args.load_raw
+        or args.create_models
+        or args.apply_snowpipe_ddl
+        or args.load_documents
+        or args.upload_semantic_model
+    ):
         parser.print_help()
         return
+    if args.apply_snowpipe_ddl and not (args.s3_bucket and args.storage_role_arn):
+        parser.error("--apply-snowpipe-ddl requires --s3-bucket and --storage-role-arn")
 
     from snowflake.snowpark import Session  # noqa: PLC0415
 
@@ -107,13 +123,28 @@ def main() -> None:
         }
     ).create()
 
+    replacements = {"@warehouse": args.warehouse, "@database": args.database}
+
     if args.apply_ddl:
-        _run_sql_files(session, DATABASE_DDL_FILES, args.warehouse, args.database)
-        _run_sql_files(session, TABLE_DDL_FILES, args.warehouse, args.database)
+        _run_sql_files(session, DATABASE_DDL_FILES, replacements)
+        _run_sql_files(session, TABLE_DDL_FILES, replacements)
     if args.load_raw:
         load_raw(session, args.database)
+    if args.apply_snowpipe_ddl:
+        snowpipe_replacements = {**replacements, "@s3_bucket": args.s3_bucket, "@storage_role_arn": args.storage_role_arn}
+        _run_sql_files(session, SNOWPIPE_DDL_FILES, snowpipe_replacements)
     if args.create_models:
-        _run_sql_files(session, CORTEX_ML_FILES, args.warehouse, args.database)
+        _run_sql_files(session, CORTEX_ML_FILES, replacements)
+    if args.load_documents:
+        from src.snowflake.cortex_search.load_documents import load_documents  # noqa: PLC0415
+
+        _run_sql_files(session, CORTEX_SEARCH_DDL_FILES, replacements)
+        load_documents(session, args.database)
+    if args.upload_semantic_model:
+        session.sql(f"CREATE STAGE IF NOT EXISTS {args.database}.mart.semantic_models").collect()
+        local_path = str(SQL_DIR / "cortex_analyst" / "semantic_model.yaml")
+        session.file.put(local_path, f"@{args.database}.mart.semantic_models", auto_compress=False, overwrite=True)
+        print(f"uploaded semantic_model.yaml to @{args.database}.mart.semantic_models")
 
 
 if __name__ == "__main__":

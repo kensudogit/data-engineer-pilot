@@ -40,6 +40,14 @@ class Settings(BaseSettings):
     # cortex_model — routes Cortex inference to a region that does.
     snowflake_cortex_cross_region: str | None = None
     cortex_model: str = "llama3.1-70b"
+    # Cortex Analyst/Agent's REST API needs a bearer token — this project's
+    # existing Snowpark session auth (username/password) doesn't cover it.
+    # A Programmatic Access Token (Snowflake's simplest current REST-API
+    # auth mechanism, simpler than key-pair JWT) is what src/snowflake/
+    # cortex_analyst/client.py and cortex_agent/client.py expect here. This
+    # is a new, additional credential requirement beyond the rest of the
+    # Snowflake integration — see README's known limitations.
+    snowflake_pat: str | None = None
 
     # Optional enhancement to the DEMO path only (source stays "demo" either
     # way — this never changes which ML backend computed the numbers, only
@@ -54,6 +62,25 @@ class Settings(BaseSettings):
     # See src/ai/openai_client.py.
     openai_api_key: str | None = None
     openai_model: str = "gpt-4o-mini"
+
+    # PostgreSQL (Python ETL source system) + S3 (ETL landing zone) settings.
+    # These are read only by backend/src/etl/*.py CLI scripts — never by
+    # FastAPI itself, so they don't gate app startup and the existing
+    # demo/bigquery/snowflake execution paths are completely unaffected by
+    # whether Postgres/AWS are configured or even reachable. See
+    # etl/run_etl.py's docstring for why the S3 leg specifically uses a
+    # skip-with-log contract instead of this project's usual fail-fast rule.
+    postgres_host: str = "localhost"
+    postgres_port: int = 5433
+    postgres_db: str = "data_engineer_pilot"
+    postgres_user: str = "dep"
+    postgres_password: str | None = None
+
+    aws_access_key_id: str | None = None
+    aws_secret_access_key: str | None = None
+    aws_region: str = "ap-northeast-1"
+    s3_bucket: str | None = None
+    s3_prefix: str = "raw"
 
     cors_origins: str = "http://localhost:3030"
 
