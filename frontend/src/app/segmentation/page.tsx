@@ -5,6 +5,7 @@ import { api, ApiError } from "@/lib/api";
 import { SegmentationResponse } from "@/lib/types";
 import { SegmentationScatter } from "@/components/SegmentationScatter";
 import { SourceBadge } from "@/components/SourceBadge";
+import { AiInsightCard } from "@/components/AiInsightCard";
 
 export default function SegmentationPage() {
   const [data, setData] = useState<SegmentationResponse | null>(null);
@@ -31,6 +32,8 @@ export default function SegmentationPage() {
         </div>
         <SourceBadge source={data.source} model={data.model} />
       </div>
+
+      <AiInsightCard insight={data.ai_insight} generatedBy={data.ai_insight_generated_by} />
 
       <div className="card" style={{ marginBottom: 20 }}>
         <span className="mutedText">シルエットスコア: {data.metrics.silhouette_score?.toFixed(3)}</span>

@@ -5,6 +5,7 @@ import { api, ApiError } from "@/lib/api";
 import { ChurnResponse } from "@/lib/types";
 import { ChurnRiskTable } from "@/components/ChurnRiskTable";
 import { SourceBadge } from "@/components/SourceBadge";
+import { AiInsightCard } from "@/components/AiInsightCard";
 
 export default function ChurnPage() {
   const [minRisk, setMinRisk] = useState(0);
@@ -31,6 +32,8 @@ export default function ChurnPage() {
       </div>
 
       {error && <p className="errorText">{error}</p>}
+
+      {data && <AiInsightCard insight={data.ai_insight} generatedBy={data.ai_insight_generated_by} />}
 
       {data && (
         <div className="card" style={{ marginBottom: 20 }}>

@@ -26,5 +26,5 @@ def get_sales_forecast(
 def list_channels(request: Request) -> ChannelListResponse:
     state: sales_forecast_service.SalesForecastState = request.app.state.sales_forecast
     return ChannelListResponse(
-        source="demo", model=sales_forecast_service.MODEL_NAME, channels=sorted(state.channels.keys())
+        source=state.source, model=sales_forecast_service.MODEL_NAME, channels=sorted(state.channels.keys())
     )

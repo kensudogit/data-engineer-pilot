@@ -1,8 +1,10 @@
-export type Source = "demo" | "bigquery";
+export type Source = "demo" | "bigquery" | "snowflake";
 
 export interface Sourced {
   source: Source;
   model: string;
+  ai_insight: string | null;
+  ai_insight_generated_by: "template" | "cortex" | null;
 }
 
 export interface TimeSeriesPoint {

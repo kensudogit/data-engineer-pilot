@@ -33,3 +33,12 @@ def test_forecast_unknown_channel_raises_keyerror(dataset):
         raise AssertionError("expected KeyError")
     except KeyError:
         pass
+
+
+def test_demo_ai_insight_is_template_generated_not_claimed_as_ai(dataset):
+    state = sales_forecast_service.prepare(dataset)
+    resp = sales_forecast_service.forecast(state, "web", horizon_days=14)
+
+    assert resp.ai_insight_generated_by == "template"
+    assert resp.ai_insight
+    assert "AI" not in resp.ai_insight

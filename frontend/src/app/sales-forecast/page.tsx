@@ -5,6 +5,7 @@ import { api, ApiError } from "@/lib/api";
 import { SalesForecastResponse } from "@/lib/types";
 import { ForecastChart } from "@/components/ForecastChart";
 import { SourceBadge } from "@/components/SourceBadge";
+import { AiInsightCard } from "@/components/AiInsightCard";
 
 export default function SalesForecastPage() {
   const [channels, setChannels] = useState<string[]>([]);
@@ -44,6 +45,8 @@ export default function SalesForecastPage() {
       </div>
 
       {error && <p className="errorText">{error}</p>}
+
+      {data && <AiInsightCard insight={data.ai_insight} generatedBy={data.ai_insight_generated_by} />}
 
       <div className="card" style={{ marginBottom: 20 }}>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>

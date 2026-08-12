@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from src.config import get_settings
 from src.data.synth import SyntheticDataset
 from src.schemas.overview import OverviewResponse, UseCaseSummary
 
@@ -18,7 +19,12 @@ def prepare(
     anomaly_metrics: dict[str, float],
 ) -> OverviewState:
     """Computed once at startup from the other services' already-trained
-    metrics — the overview page never needs its own model."""
+    metrics — the overview page never needs its own model, and the other
+    5 services have already been prepare()d by the time main.py's lifespan
+    calls this (see the churn_metrics/segmentation_metrics/anomaly_metrics
+    args), so this reads execution_mode itself rather than taking a
+    `source` parameter — no main.py signature change needed here."""
+    settings = get_settings()
     total_customers = len(dataset.customers)
     active_customers = int(dataset.customers["is_active"].sum())
     total_orders = len(dataset.orders)
@@ -27,6 +33,27 @@ def prepare(
     auc = churn_metrics.get("auc", float("nan"))
     silhouette = segmentation_metrics.get("silhouette_score", float("nan"))
     contamination = anomaly_metrics.get("contamination", 0.0)
+
+    if settings.execution_mode == "snowflake":
+        from src.snowflake.client import get_session  # noqa: PLC0415
+        from src.snowflake.cortex.insight import build_prompt_overview, generate_insight  # noqa: PLC0415
+
+        session = get_session()
+        source = "snowflake"
+        ai_insight_generated_by = "cortex"
+        ai_insight = generate_insight(
+            session,
+            build_prompt_overview(total_customers, total_revenue, auc, silhouette, contamination),
+            settings.cortex_model,
+        )
+    else:
+        source = settings.execution_mode  # "demo" or "bigquery"
+        ai_insight_generated_by = "template"
+        ai_insight = (
+            f"顧客{total_customers}件・累計売上¥{total_revenue:,.0f}のデータに対し、"
+            f"解約予測(AUC {auc:.2f})・顧客分類(シルエット{silhouette:.2f})・"
+            f"異常検知(想定異常率{contamination * 100:.1f}%)の3モデルを学習済みです。"
+        )
 
     summaries = [
         UseCaseSummary(
@@ -43,7 +70,7 @@ def prepare(
     ]
 
     response = OverviewResponse(
-        source="demo",
+        source=source,
         model="overview",
         generated_at=dataset.as_of_date.isoformat(),
         total_customers=total_customers,
@@ -51,5 +78,7 @@ def prepare(
         total_orders=total_orders,
         total_revenue=round(total_revenue, 2),
         summaries=summaries,
+        ai_insight=ai_insight,
+        ai_insight_generated_by=ai_insight_generated_by,
     )
     return OverviewState(response=response)

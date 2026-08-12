@@ -5,6 +5,7 @@ import { api, ApiError } from "@/lib/api";
 import { OverviewResponse } from "@/lib/types";
 import { OverviewCards } from "@/components/OverviewCards";
 import { SourceBadge } from "@/components/SourceBadge";
+import { AiInsightCard } from "@/components/AiInsightCard";
 
 export default function OverviewPage() {
   const [data, setData] = useState<OverviewResponse | null>(null);
@@ -31,6 +32,8 @@ export default function OverviewPage() {
         </div>
         <SourceBadge source={data.source} model={data.model} />
       </div>
+
+      <AiInsightCard insight={data.ai_insight} generatedBy={data.ai_insight_generated_by} />
 
       <div className="kpiGrid">
         <div className="card">

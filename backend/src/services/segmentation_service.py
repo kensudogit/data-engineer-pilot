@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 import pandas as pd
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import StandardScaler
 
+from src.config import Settings, get_settings
 from src.data import features
 from src.data.synth import SyntheticDataset
 from src.schemas.segmentation import ClusterSummary, SegmentationResponse, SegmentCustomer
@@ -21,6 +23,9 @@ class SegmentationState:
     customers: pd.DataFrame  # with cluster_id assigned
     cluster_labels: dict[int, str]
     metrics: dict[str, float]
+    ai_insight: str
+    ai_insight_generated_by: Literal["template", "cortex"]
+    source: Literal["demo", "snowflake"]
 
 
 _RANK_LABELS = ["VIP", "優良顧客", "一般顧客", "休眠リスク"]
@@ -36,6 +41,10 @@ def _label_clusters(centers: pd.DataFrame) -> dict[int, str]:
     休眠リスク") can accidentally match more than one cluster and leave two
     segments with an identical name, which is exactly what happened during
     manual verification (two different clusters both labeled 休眠リスク).
+
+    Reused as-is by snowflake/snowpark_ml/segmentation_train.py's caller
+    (_prepare_snowflake below) so the labeling algorithm exists in exactly
+    one place regardless of which execution path produced the raw clusters.
     """
     ordered = centers["monetary_90d"].sort_values(ascending=False)
     labels: dict[int, str] = {}
@@ -46,6 +55,13 @@ def _label_clusters(centers: pd.DataFrame) -> dict[int, str]:
 
 
 def prepare(dataset: SyntheticDataset) -> SegmentationState:
+    settings = get_settings()
+    if settings.execution_mode == "snowflake":
+        return _prepare_snowflake(dataset, settings)
+    return _prepare_demo(dataset)
+
+
+def _prepare_demo(dataset: SyntheticDataset) -> SegmentationState:
     snapshot = features.customer_features(dataset, dataset.as_of_date)
     X = snapshot[FEATURE_COLS]
 
@@ -60,7 +76,55 @@ def prepare(dataset: SyntheticDataset) -> SegmentationState:
     centers = result.groupby("cluster_id")[FEATURE_COLS].mean()
     cluster_labels = _label_clusters(centers)
 
-    return SegmentationState(customers=result, cluster_labels=cluster_labels, metrics={"silhouette_score": round(sil, 4)})
+    cluster_sizes = {cluster_labels[cid]: int(len(g)) for cid, g in result.groupby("cluster_id")}
+    ai_insight = (
+        f"シルエットスコア{sil:.2f}のKMeans（4クラスタ）で顧客を分類し、消費額の高い順に"
+        f"{'・'.join(f'{label}({size}件)' for label, size in cluster_sizes.items())}とラベル付けしました。"
+    )
+
+    return SegmentationState(
+        customers=result,
+        cluster_labels=cluster_labels,
+        metrics={"silhouette_score": round(sil, 4)},
+        ai_insight=ai_insight,
+        ai_insight_generated_by="template",
+        source="demo",
+    )
+
+
+def _prepare_snowflake(dataset: SyntheticDataset, settings: Settings) -> SegmentationState:
+    """Trains via Snowpark ML's KMeans (src/snowflake/snowpark_ml/segmentation_train.py)
+    — Cortex ML Functions has no no-code clustering function, so this use
+    case is Snowpark-ML-based rather than a SNOWFLAKE.ML.<TYPE> SQL object.
+    Never executed/verified this session (no live Snowflake account)."""
+    from sklearn.metrics import silhouette_score as _silhouette_score  # noqa: PLC0415
+    from src.snowflake.client import get_session  # noqa: PLC0415
+    from src.snowflake.cortex.insight import build_prompt_segmentation, generate_insight  # noqa: PLC0415
+    from src.snowflake.snowpark_ml.segmentation_train import train as snowpark_train  # noqa: PLC0415
+
+    session = get_session()
+    result = snowpark_train(session)
+
+    sil = float("nan")
+    if result["cluster_id"].nunique() > 1:
+        sil = float(_silhouette_score(result[FEATURE_COLS], result["cluster_id"]))
+
+    centers = result.groupby("cluster_id")[FEATURE_COLS].mean()
+    cluster_labels = _label_clusters(centers)  # same rank-based algorithm as the demo path, reused directly
+
+    cluster_sizes = {cluster_labels[cid]: int(len(g)) for cid, g in result.groupby("cluster_id")}
+    ai_insight = generate_insight(
+        session, build_prompt_segmentation(sil, cluster_sizes), settings.cortex_model
+    )
+
+    return SegmentationState(
+        customers=result,
+        cluster_labels=cluster_labels,
+        metrics={"silhouette_score": round(sil, 4)},
+        ai_insight=ai_insight,
+        ai_insight_generated_by="cortex",
+        source="snowflake",
+    )
 
 
 def segments(state: SegmentationState) -> SegmentationResponse:
@@ -88,5 +152,11 @@ def segments(state: SegmentationState) -> SegmentationResponse:
     ]
 
     return SegmentationResponse(
-        source="demo", model=MODEL_NAME, clusters=clusters, customers=customers, metrics=state.metrics
+        source=state.source,
+        model=MODEL_NAME,
+        clusters=clusters,
+        customers=customers,
+        metrics=state.metrics,
+        ai_insight=state.ai_insight,
+        ai_insight_generated_by=state.ai_insight_generated_by,
     )

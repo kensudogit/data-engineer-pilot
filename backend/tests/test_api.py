@@ -17,7 +17,7 @@ def client():
 def test_health(client):
     resp = client.get("/health")
     assert resp.status_code == 200
-    assert resp.json()["demo_mode"] is True
+    assert resp.json()["execution_mode"] == "demo"
 
 
 def test_overview(client):
@@ -26,6 +26,8 @@ def test_overview(client):
     body = resp.json()
     assert body["source"] == "demo"
     assert len(body["summaries"]) == 5
+    assert body["ai_insight_generated_by"] == "template"
+    assert body["ai_insight"]
 
 
 def test_sales_forecast_default_and_explicit_channel(client):

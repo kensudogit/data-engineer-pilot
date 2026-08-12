@@ -38,29 +38,45 @@ const valueFeatured: FeaturedBlock = {
   badge: "Value",
   title: "本ツールの位置づけ",
   body:
-    "BigQuery MLを想定した5つの分析ユースケース（売上予測・解約予測・顧客分類・異常検知・需要予測）を、1つの一貫した合成EC/SaaSデータセットの上で一気通貫に確認できるパイロットです。GCPプロジェクトが未接続の現状でも、statsmodels/scikit-learnによる本物の近似計算で「同じ画面・同じAPI形状のまま」機能を検証でき、実GCPに接続すればコードを変えずにBigQuery MLへ切り替えられます。",
+    "BigQuery ML / Snowflake（Cortex ML Functions・Cortex LLM・Snowpark ML）を想定した5つの分析ユースケース（売上予測・解約予測・顧客分類・異常検知・需要予測）を、1つの一貫した合成EC/SaaSデータセットの上で一気通貫に確認できるパイロットです。GCP・Snowflakeいずれも未接続の現状でも、statsmodels/scikit-learnによる本物の近似計算で「同じ画面・同じAPI形状のまま」機能を検証でき、実環境に接続すればコードを変えずにBigQuery MLまたはSnowflakeへ切り替えられます。",
   variant: "agent",
   items: [
-    "GCP未接続でも検証可能 — DEMO_MODE=true（既定）なら合成データに対しローカルで本物のML計算を実行、ハードコードされた偽の数値ではない",
-    "本番切り替えはコード変更なし — 環境変数 DEMO_MODE=false + GCP認証情報を渡すだけでBigQuery MLへ切り替わる設計",
-    "混同防止 — 全APIレスポンスに source: \"demo\" | \"bigquery\" が必須で入り、画面上にも常にバッジで明示される",
-    "フェイルセーフ — DEMO_MODE=false時にBigQuery接続に失敗した場合はデモ数値へ静かにフォールバックせず、起動自体を失敗させる",
+    "未接続でも検証可能 — EXECUTION_MODE=demo（既定）なら合成データに対しローカルで本物のML計算を実行、ハードコードされた偽の数値ではない",
+    "本番切り替えはコード変更なし — 環境変数 EXECUTION_MODE=bigquery|snowflake + 各認証情報を渡すだけで切り替わる設計",
+    "混同防止 — 全APIレスポンスに source: \"demo\"|\"bigquery\"|\"snowflake\" が必須で入り、画面上にも常にバッジで明示される",
+    "AIインサイトも同じ原則 — Snowflake経路のみ実際のCortex COMPLETE生成文（ai_insight_generated_by:\"cortex\"）、それ以外はテンプレート生成文（\"template\"）と明示的にタグ分けする",
+    "フェイルセーフ — bigquery/snowflake経路で接続に失敗した場合はデモ数値へ静かにフォールバックせず、起動自体を失敗させる",
   ],
 };
 
 const architectureFeatured: FeaturedBlock = {
   badge: "Architecture",
-  title: "Next.js BFF + FastAPI + BigQuery ML（デュアル経路）",
+  title: "Next.js BFF + FastAPI + BigQuery ML / Snowflake（3経路）",
   body:
     "ブラウザは常に同一オリジン（または localhost:3030）のみを見ます。Next.js の rewrites が /api・/health・/docs を同一オリジン経由で FastAPI :8000 へプロキシします。FastAPI起動時（lifespan）に合成データセットを一度だけ生成し、5つのモデルを一度だけ学習してapp.stateに保持するため、リクエスト毎の再学習は発生しません。",
   variant: "architecture",
   items: [
     "Next.js — / (概要) · /sales-forecast · /churn · /segmentation · /anomaly · /demand-forecast",
     "FastAPI :8000 — /api/overview 他5エンドポイント・Swagger",
-    "デモ経路 — statsmodels(ExponentialSmoothing) / scikit-learn(LogisticRegression・KMeans・IsolationForest) を合成データに対しその場で計算",
-    "BigQuery経路 — google-cloud-bigquery 経由で ARIMA_PLUS / LOGISTIC_REG / KMEANS / AUTOENCODER の CREATE MODEL + ML.FORECAST/ML.PREDICT/ML.DETECT_ANOMALIES を実行",
-    "Health — GET /health（demo_modeの現在値を含む、frontend経由でも到達可）",
+    "demo経路 — statsmodels(ExponentialSmoothing) / scikit-learn(LogisticRegression・KMeans・IsolationForest) を合成データに対しその場で計算",
+    "bigquery経路 — google-cloud-bigquery 経由で ARIMA_PLUS / LOGISTIC_REG / KMEANS / AUTOENCODER の CREATE MODEL + ML.FORECAST/ML.PREDICT/ML.DETECT_ANOMALIES を実行",
+    "snowflake経路 — Cortex ML Functions（SNOWFLAKE.ML.FORECAST/CLASSIFICATION）・Snowpark ML（KMeans/IsolationForest）・Cortex LLM（SNOWFLAKE.CORTEX.COMPLETE、AIインサイト生成）を実行",
+    "Health — GET /health（execution_modeの現在値を含む、frontend経由でも到達可）",
     "Swagger — http://localhost:8030/docs",
+  ],
+};
+
+const snowflakeFeatured: FeaturedBlock = {
+  badge: "Snowflake",
+  title: "Snowflake経路（Cortex ML Functions・Cortex LLM・Snowpark ML）",
+  body:
+    "BigQueryとは独立した第3の実行経路として、Snowflakeを中核としたAI対応アーキテクチャを追加しています。技術ごとの役割分担が明確に分かれているのが特徴です。",
+  variant: "image",
+  items: [
+    "Cortex ML Functions（コード不要のSQLネイティブ古典ML）— 売上予測・需要予測はSNOWFLAKE.ML.FORECAST、解約予測はSNOWFLAKE.ML.CLASSIFICATION",
+    "Snowpark ML（Python、Cortexとは別のライブラリ）— 顧客分類はKMeans、異常検知はIsolationForest。クラスタリングや多変量取引異常検知にはCortex ML Functionsの組み込み関数が存在しないための選択（BigQuery版がKMEANS距離ではなくAUTOENCODERを選んだのと同じ理由）",
+    "Cortex LLM Functions（生成AI）— SNOWFLAKE.CORTEX.COMPLETEで各ユースケースの結果を要約する自然文「AIインサイト」を生成し、各機能ページに表示",
+    "provision_snowflake.py — DDL適用・データ投入・Cortex ML Functionsオブジェクト作成をBigQuery版provision_bigquery.pyと同じCLI構造で提供（未実行・未検証）",
   ],
 };
 
@@ -144,19 +160,22 @@ const deployFeatured: FeaturedBlock = {
     "Compose — docker compose up --build → UI :3030 / API :8030",
     "Backend 単体 — cd backend && uvicorn src.main:app --reload --port 8000（要 Python 3.12venv）",
     "Frontend 単体 — cd frontend && npm run dev",
-    "テスト — cd backend && pytest（合成データに対して43件のテストを実行、外部通信・GCP接続なし）",
-    "Health — /health（demo_modeを含む）· Swagger UI で API 確認",
+    "テスト — cd backend && pytest（合成データに対して49件のテストを実行、外部通信・GCP/Snowflake接続なし）",
+    "Health — /health（execution_modeを含む）· Swagger UI で API 確認",
   ],
 };
 
 const techStack = [
   "Python 3.12 · FastAPI",
   "BigQuery ML（ARIMA_PLUS/LOGISTIC_REG/KMEANS/AUTOENCODER）",
-  "statsmodels · scikit-learn（デモ経路）",
+  "Snowflake Cortex ML Functions（FORECAST/CLASSIFICATION）",
+  "Snowpark ML（KMeans/IsolationForest）",
+  "Snowflake Cortex LLM（COMPLETE、AIインサイト生成）",
+  "statsmodels · scikit-learn（demo経路）",
   "pandas · numpy（合成データ生成、seed固定）",
   "Next.js 15 · React 19",
   "TypeScript · CSS Modules · recharts",
-  "google-cloud-bigquery（実経路）",
+  "google-cloud-bigquery / snowflake-snowpark-python（実経路）",
   "Docker Compose",
 ] as const;
 
@@ -169,12 +188,17 @@ Next.js :3030 (local) / :3000 (container)
               │ rewrite / proxy
               ▼
          FastAPI :8000  (lifespanで合成データ生成+5モデル学習を一度だけ実行)
-              ├─ DEMO_MODE=true（既定）
+              ├─ EXECUTION_MODE=demo（既定）
               │     └─ services/*.py — statsmodels / scikit-learn で実計算
-              └─ DEMO_MODE=false（実GCP接続時）
-                    └─ bigquery/client.py — BigQuery ML (CREATE MODEL / ML.FORECAST /
-                                             ML.PREDICT / ML.DETECT_ANOMALIES)
-              全レスポンス共通: source: "demo" | "bigquery"`;
+              │        + AIインサイトはテンプレート生成文
+              ├─ EXECUTION_MODE=bigquery（実GCP接続時）
+              │     └─ bigquery/client.py — BigQuery ML (CREATE MODEL / ML.FORECAST /
+              │                              ML.PREDICT / ML.DETECT_ANOMALIES)
+              └─ EXECUTION_MODE=snowflake（実Snowflake接続時）
+                    └─ snowflake/client.py — Cortex ML Functions (FORECAST/CLASSIFICATION)
+                       + Snowpark ML (KMeans/IsolationForest)
+                       + Cortex LLM COMPLETE でAIインサイトを実生成
+              全レスポンス共通: source: "demo" | "bigquery" | "snowflake"`;
 
 type GuideSection = {
   label: string;
@@ -201,7 +225,7 @@ const guideSections: readonly GuideSection[] = [
           "Compose — docker compose up --build",
           "UI — http://localhost:3030",
           "API — http://localhost:8030/docs",
-          "Health — http://localhost:8030/health（demo_mode:trueであることを確認、または同一オリジン /health）",
+          "Health — http://localhost:8030/health（execution_mode:\"demo\"であることを確認、または同一オリジン /health）",
         ],
       },
     ],
@@ -214,6 +238,7 @@ const guideSections: readonly GuideSection[] = [
       segmentationFeatured,
       anomalyFeatured,
       demandFeatured,
+      snowflakeFeatured,
     ].map((f) => ({ title: `${f.badge}. ${f.title}`, body: f.body, items: f.items })),
   },
   {
@@ -225,7 +250,8 @@ const guideSections: readonly GuideSection[] = [
         items: [
           "カード — 各カードをクリックすると該当機能の詳細画面へ遷移",
           "総顧客数・アクティブ顧客数・累計注文数・累計売上を画面上部に表示",
-          "sourceバッジ — デモモードか実BigQuery MLかを常に明示",
+          "sourceバッジ — デモモードか実BigQuery MLかSnowflakeかを常に明示",
+          "AIインサイト — 各機能ページ上部にCortex/テンプレート生成の要約文をタグ付きで表示",
         ],
       },
     ],
@@ -251,11 +277,41 @@ const guideSections: readonly GuideSection[] = [
       },
       {
         title: "③ 環境変数の切り替え",
-        body: "DEMO_MODE=false にすると起動時にBigQuery疎通確認を行います。",
+        body: "EXECUTION_MODE=bigquery にすると起動時にBigQuery疎通確認を行います。",
         items: [
-          "DEMO_MODE=false / GCP_PROJECT_ID=YOUR_PROJECT / GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json",
+          "EXECUTION_MODE=bigquery / GCP_PROJECT_ID=YOUR_PROJECT / GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json",
           "接続に失敗した場合は起動自体が失敗します（デモ数値への静かなフォールバックはしない設計）",
           "成功すればAPIレスポンスのsourceが\"bigquery\"に切り替わり、画面上のバッジも連動して変わる",
+        ],
+      },
+    ],
+  },
+  {
+    label: "実Snowflake環境への接続方法",
+    steps: [
+      {
+        title: "① データベース・ウェアハウスの準備",
+        body: "実際のSnowflakeで動かす場合の手順です（このパイロット自体では未実施・未検証）。Cortexが有効なアカウント・ウェアハウスが必要です。",
+        items: [
+          "SNOWFLAKE.CORTEX_USERデータベースロールを実行ロールに付与（Cortex LLM/ML Functions利用に必須）",
+          "backend/src/snowflake/ddl/00_database_warehouse.sql の @warehouse・@database を実値に置換して実行（ウェアハウス+RAW/STAGING/DWH/MARTの4スキーマを作成）",
+        ],
+      },
+      {
+        title: "② データ投入・DDL適用・Cortex ML Functions作成",
+        body: "backend/scripts/provision_snowflake.py で一括実行できます。Snowpark ML（顧客分類・異常検知）はCortex ML Functionsと異なり事前作成不要 — FastAPI起動時に都度学習されます。",
+        items: [
+          "cd backend && python -m scripts.provision_snowflake --account YOUR_ACCOUNT --warehouse DATA_ENGINEER_PILOT_WH --database DATA_ENGINEER_PILOT --apply-ddl --load-raw --create-models",
+          "合成データセット（このパイロットと同じseed=42生成）がRAWテーブルへロードされ、STAGING/DWH/MARTのDDLとCortex ML Functions（FORECAST×2・CLASSIFICATION）が作成される",
+        ],
+      },
+      {
+        title: "③ 環境変数の切り替え",
+        body: "EXECUTION_MODE=snowflake にすると起動時にSnowflake疎通確認を行います。",
+        items: [
+          "EXECUTION_MODE=snowflake / SNOWFLAKE_ACCOUNT・SNOWFLAKE_USER・SNOWFLAKE_PASSWORD / 任意でSNOWFLAKE_ROLE・SNOWFLAKE_WAREHOUSE・SNOWFLAKE_DATABASE・CORTEX_MODEL",
+          "接続に失敗した場合は起動自体が失敗します（デモ数値への静かなフォールバックはしない設計、BigQuery経路と同じ契約）",
+          "成功すればAPIレスポンスのsourceが\"snowflake\"に切り替わり、ai_insightもCortex COMPLETEによる実生成文（ai_insight_generated_by:\"cortex\"）に変わる",
         ],
       },
     ],
@@ -278,7 +334,7 @@ const guideSections: readonly GuideSection[] = [
         body: "IDE 開発時はサービスを分けて起動できます。",
         items: [
           "Backend — cd backend && uvicorn src.main:app --reload --port 8000（Python 3.12推奨、gcc/gfortran要— statsmodels/scipyのビルドに必要な場合あり）",
-          "テスト — cd backend && pytest -v（43件、合成データに対し外部通信なしで実行）",
+          "テスト — cd backend && pytest -v（49件、合成データに対し外部通信なしで実行）",
           "Frontend — cd frontend && npm install && npm run dev",
           "型チェック/ビルド確認 — npx tsc --noEmit && npm run build",
         ],
@@ -287,10 +343,11 @@ const guideSections: readonly GuideSection[] = [
         title: "前提・制限（必ず読む）",
         body: "本パイロットの現時点のスコープ外事項です。",
         items: [
-          "BigQuery ML SQLは未実行・未検証 — 公式構文に基づき作成していますが、実GCP環境での動作確認は利用者側で行ってください",
-          "デモ経路の数値は近似 — statsmodels/scikit-learnによる本物の計算ですが、BigQuery MLモデルと同一の予測精度を保証しません",
-          "オンライン学習・モデルのバージョニングは未実装 — 再学習が必要な場合はプロセスの再起動で対応",
-          "需要予測は売上上位20商品に限定 — コスト対策のため（ARIMA_PLUSのtime_series_id_col使用時、系列数に比例して学習コストが増加）",
+          "BigQuery ML SQL・Snowflake SQL/Snowpark MLコードは未実行・未検証 — 公式構文に基づき作成していますが、実環境での動作確認は利用者側で行ってください",
+          "デモ経路の数値は近似 — statsmodels/scikit-learnによる本物の計算ですが、BigQuery MLやSnowflakeモデルと同一の予測精度を保証しません",
+          "デモ経路のAIインサイトはテンプレート生成 — 実際のCortex COMPLETE呼び出しはEXECUTION_MODE=snowflake時のみ",
+          "オンライン学習・モデルのバージョニング・Snowflake Model Registry連携は未実装 — 再学習が必要な場合はプロセスの再起動で対応",
+          "需要予測は売上上位20商品に限定 — コスト対策のため（time_series_id_col/SERIES_COLNAME使用時、系列数に比例して学習コストが増加）",
           "合成データはseed=42で完全に決定的 — 実データではないため、数値そのものに業務的な意味はない",
         ],
       },
@@ -298,10 +355,10 @@ const guideSections: readonly GuideSection[] = [
         title: "よくあるエラーと対処",
         body: "画面や数値が期待どおりでないときの確認手順です。",
         items: [
-          "画面に「デモモード」バッジしか出ない — DEMO_MODE=trueが既定のため正常動作。実BigQuery MLを見たい場合は上記「実GCP環境への接続方法」を実施",
+          "画面に「デモモード」バッジしか出ない — EXECUTION_MODE=demoが既定のため正常動作。実BigQuery ML/Snowflakeを見たい場合は上記の接続方法を実施",
           "/health が404・接続エラー — バックエンドコンテナが起動しているか docker compose ps / docker logs dep-backend で確認",
           "特定の商品/チャネルが選択肢に出ない — 需要予測は売上上位20商品限定、履歴データ点数が少なすぎる系列はMIN_HISTORY_POINTSにより自動除外",
-          "起動が失敗する（DEMO_MODE=false時）— BigQuery接続失敗による意図的な起動失敗です。GOOGLE_APPLICATION_CREDENTIALS・GCP_PROJECT_ID・権限を確認",
+          "起動が失敗する（EXECUTION_MODE=bigquery/snowflake時）— 接続失敗による意図的な起動失敗です。認証情報・プロジェクトID(またはアカウント)・権限を確認",
           "pytestの精度系テストが失敗する — seed=42での実測値を基準にした閾値のため、合成データ生成ロジックを変更した場合は再学習後の実測値に合わせて閾値を見直してください",
         ],
       },
@@ -317,11 +374,11 @@ const L = {
   collapse: "閉じる",
   heroTitle: "Data Engineer Pilot 基盤",
   heroLead:
-    "BigQuery ML想定の5機能（売上予測・解約予測・顧客分類・異常検知・需要予測）を、1つの合成EC/SaaSデータセットの上でデモ/BigQueryの両経路から確認できるパイロット基盤です。GCP未接続でも本物の近似計算で機能検証が完結します。",
+    "BigQuery ML / Snowflake（Cortex ML Functions・Cortex LLM・Snowpark ML）想定の5機能（売上予測・解約予測・顧客分類・異常検知・需要予測）を、1つの合成EC/SaaSデータセットの上でdemo/bigquery/snowflakeの3経路から確認できるパイロット基盤です。未接続でも本物の近似計算で機能検証が完結します。",
   stackLabel: "Tech stack",
   diagramLabel: "Service topology",
   workflowLabel: "詳細利用手順",
-  scrollHint: "↓ 5機能それぞれの使い方・実GCPへの接続方法・運用手順は下へ",
+  scrollHint: "↓ 5機能それぞれの使い方・実GCP/Snowflakeへの接続方法・運用手順は下へ",
   footer:
     "▼▲ で開閉 · PC はヘッダーをドラッグして移動 · スマホは画面下部のボトムシート · 表示状態は自動保存されます。全ての数値は合成データ（seed=42）に基づくデモです。",
 } as const;
@@ -544,6 +601,7 @@ export function UsageGuidePanel() {
           <FeaturedSection block={segmentationFeatured} />
           <FeaturedSection block={anomalyFeatured} />
           <FeaturedSection block={demandFeatured} />
+          <FeaturedSection block={snowflakeFeatured} />
           <FeaturedSection block={deployFeatured} />
 
           <p className={styles.scrollHint}>{L.scrollHint}</p>

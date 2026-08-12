@@ -26,4 +26,4 @@ def get_demand_forecast(
 def list_products(request: Request) -> ProductListResponse:
     state: demand_forecast_service.DemandForecastState = request.app.state.demand_forecast
     products = demand_forecast_service.list_products(state)
-    return ProductListResponse(source="demo", model=demand_forecast_service.MODEL_NAME, products=products)
+    return ProductListResponse(source=state.source, model=demand_forecast_service.MODEL_NAME, products=products)

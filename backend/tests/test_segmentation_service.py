@@ -32,3 +32,12 @@ def test_highest_monetary_cluster_is_labeled_vip(dataset):
     resp = segmentation_service.segments(state)
     top_cluster = max(resp.clusters, key=lambda c: c.avg_monetary_90d)
     assert top_cluster.label == "VIP"
+
+
+def test_demo_ai_insight_is_template_generated_not_claimed_as_ai(dataset):
+    state = segmentation_service.prepare(dataset)
+    resp = segmentation_service.segments(state)
+
+    assert resp.ai_insight_generated_by == "template"
+    assert resp.ai_insight
+    assert "AI" not in resp.ai_insight

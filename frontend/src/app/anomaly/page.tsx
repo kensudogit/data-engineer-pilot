@@ -5,6 +5,7 @@ import { api, ApiError } from "@/lib/api";
 import { AnomalyResponse } from "@/lib/types";
 import { AnomalyChart } from "@/components/AnomalyChart";
 import { SourceBadge } from "@/components/SourceBadge";
+import { AiInsightCard } from "@/components/AiInsightCard";
 
 export default function AnomalyPage() {
   const [windowDays, setWindowDays] = useState(90);
@@ -34,6 +35,8 @@ export default function AnomalyPage() {
         </div>
         <SourceBadge source={data.source} model={data.model} />
       </div>
+
+      <AiInsightCard insight={data.ai_insight} generatedBy={data.ai_insight_generated_by} />
 
       <div className="card" style={{ marginBottom: 20 }}>
         <span className="mutedText">

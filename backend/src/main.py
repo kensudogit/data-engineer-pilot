@@ -28,12 +28,17 @@ from src.services import (
 async def lifespan(app: FastAPI):
     settings = get_settings()
 
-    if not settings.demo_mode:
-        # Fail loudly at startup rather than silently falling back to demo
-        # mode — see config.py's demo_mode docstring and bigquery/client.py.
+    # Fail loudly at startup rather than silently falling back to demo mode
+    # — see config.py's execution_mode docstring and bigquery/client.py /
+    # snowflake/client.py.
+    if settings.execution_mode == "bigquery":
         from src.bigquery.client import get_client  # noqa: PLC0415
 
         get_client()
+    elif settings.execution_mode == "snowflake":
+        from src.snowflake.client import get_session  # noqa: PLC0415
+
+        get_session()
 
     # Generated once, held for the process lifetime — every service trains
     # against this same fixed dataset instead of regenerating random data
@@ -83,28 +88,28 @@ app.include_router(demand_forecast_router)
 @app.get("/", response_class=HTMLResponse)
 def root():
     """Browser-friendly landing (avoids bare {"detail":"Not Found"} on /)."""
-    return """<!DOCTYPE html>
+    return f"""<!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Data Engineer Pilot API</title>
   <style>
-    body { font-family: "IBM Plex Sans", system-ui, sans-serif; margin: 0;
+    body {{ font-family: "IBM Plex Sans", system-ui, sans-serif; margin: 0;
       background: linear-gradient(160deg,#0f172a,#1e293b); color: #e2e8f0;
-      min-height: 100vh; display: grid; place-items: center; }
-    main { width: min(560px, calc(100% - 2rem)); }
-    h1 { font-family: Georgia, serif; font-weight: 560; margin: 0 0 .5rem; }
-    h1 span { color: #38bdf8; }
-    p { color: #94a3b8; line-height: 1.5; }
-    a { color: #38bdf8; }
-    ul { padding-left: 1.1rem; line-height: 1.8; }
+      min-height: 100vh; display: grid; place-items: center; }}
+    main {{ width: min(560px, calc(100% - 2rem)); }}
+    h1 {{ font-family: Georgia, serif; font-weight: 560; margin: 0 0 .5rem; }}
+    h1 span {{ color: #38bdf8; }}
+    p {{ color: #94a3b8; line-height: 1.5; }}
+    a {{ color: #38bdf8; }}
+    ul {{ padding-left: 1.1rem; line-height: 1.8; }}
   </style>
 </head>
 <body>
   <main>
     <h1>Data Engineer <span>Pilot</span> API</h1>
-    <p>バックエンドは稼働中です（デモモード）。UI または API ドキュメントへ進んでください。</p>
+    <p>バックエンドは稼働中です（実行モード: {get_settings().execution_mode}）。UI または API ドキュメントへ進んでください。</p>
     <ul>
       <li><a href="http://localhost:3030">フロントエンド UI</a> — http://localhost:3030</li>
       <li><a href="/docs">Swagger API Docs</a></li>
@@ -119,4 +124,4 @@ def root():
 @app.get("/health")
 def health():
     settings = get_settings()
-    return {"status": "ok", "app": "data-engineer-pilot", "demo_mode": settings.demo_mode}
+    return {"status": "ok", "app": "data-engineer-pilot", "execution_mode": settings.execution_mode}

@@ -49,7 +49,7 @@ RUN chmod +x /app/start.sh
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app/backend
 ENV INTERNAL_API_URL=http://localhost:8000
-ENV DEMO_MODE=true
+ENV EXECUTION_MODE=demo
 
 EXPOSE 3000
 CMD ["/app/start.sh"]

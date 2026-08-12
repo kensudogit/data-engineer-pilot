@@ -35,3 +35,12 @@ def test_risk_tier_thresholds():
     assert churn_service._risk_tier(0.9) == "high"
     assert churn_service._risk_tier(0.4) == "medium"
     assert churn_service._risk_tier(0.1) == "low"
+
+
+def test_demo_ai_insight_is_template_generated_not_claimed_as_ai(dataset):
+    state = churn_service.prepare(dataset)
+    resp = churn_service.score(state, limit=10)
+
+    assert resp.ai_insight_generated_by == "template"
+    assert resp.ai_insight
+    assert "AI" not in resp.ai_insight  # must never phrase a template sentence as if an AI wrote it

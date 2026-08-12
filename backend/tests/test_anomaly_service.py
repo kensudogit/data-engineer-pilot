@@ -42,3 +42,12 @@ def test_detect_window_days_filters_to_recent_orders(dataset):
     last_order_date = dataset.orders["order_date"].max()
     cutoff = last_order_date - timedelta(days=7)
     assert all(date.fromisoformat(a.order_date) >= cutoff for a in resp.anomalies)
+
+
+def test_demo_ai_insight_is_template_generated_not_claimed_as_ai(dataset):
+    state = anomaly_service.prepare(dataset)
+    resp = anomaly_service.detect(state, limit=20)
+
+    assert resp.ai_insight_generated_by == "template"
+    assert resp.ai_insight
+    assert "AI" not in resp.ai_insight
