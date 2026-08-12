@@ -48,10 +48,10 @@ def prepare(dataset: SyntheticDataset) -> ChurnState:
     settings = get_settings()
     if settings.execution_mode == "snowflake":
         return _prepare_snowflake(dataset, settings)
-    return _prepare_demo(dataset)
+    return _prepare_demo(dataset, settings)
 
 
-def _prepare_demo(dataset: SyntheticDataset) -> ChurnState:
+def _prepare_demo(dataset: SyntheticDataset, settings: Settings) -> ChurnState:
     training = features.customer_training_dataset(dataset)
     X = training[NUMERIC_FEATURES + CATEGORICAL_FEATURES]
     y = training["churned_next_30d"].astype(int)
@@ -78,16 +78,22 @@ def _prepare_demo(dataset: SyntheticDataset) -> ChurnState:
 
     metrics = {"auc": round(auc, 4)}
     high_risk_count = int((scoring_features["churn_probability"] >= 0.6).sum())
-    ai_insight = (
+    template_insight = (
         f"AUC {auc:.2f}のロジスティック回帰モデルにより、"
         f"{len(scoring_features)}件中{high_risk_count}件を高リスク顧客として検出しました。"
+    )
+    from src.ai.openai_client import enhance_with_openai  # noqa: PLC0415
+    from src.ai.prompts import build_prompt_churn  # noqa: PLC0415
+
+    ai_insight, ai_insight_generated_by = enhance_with_openai(
+        template_insight, build_prompt_churn(auc, high_risk_count, len(scoring_features)), settings
     )
 
     return ChurnState(
         scoring_features=scoring_features,
         metrics=metrics,
         ai_insight=ai_insight,
-        ai_insight_generated_by="template",
+        ai_insight_generated_by=ai_insight_generated_by,
         source="demo",
     )
 

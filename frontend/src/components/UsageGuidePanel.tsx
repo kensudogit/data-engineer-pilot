@@ -2,7 +2,8 @@
 
 /**
  * 画面右下のドラッグ可能な利用手順パネル（localStorage で位置・開閉を保存）。
- * Data Engineer Pilot — アーキテクチャ・デモ/BigQuery経路・5機能の使い方を表示。
+ * Data Engineer Pilot — アーキテクチャ・demo/bigquery/snowflakeの3経路・
+ * 5機能の使い方・AIインサイト（Cortex LLM生成）を表示。
  * デザインは Scraping Platform / Ecosystem Platform の UsageGuidePanel と共通（CSS はそのまま流用）。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -44,7 +45,8 @@ const valueFeatured: FeaturedBlock = {
     "未接続でも検証可能 — EXECUTION_MODE=demo（既定）なら合成データに対しローカルで本物のML計算を実行、ハードコードされた偽の数値ではない",
     "本番切り替えはコード変更なし — 環境変数 EXECUTION_MODE=bigquery|snowflake + 各認証情報を渡すだけで切り替わる設計",
     "混同防止 — 全APIレスポンスに source: \"demo\"|\"bigquery\"|\"snowflake\" が必須で入り、画面上にも常にバッジで明示される",
-    "AIインサイトも同じ原則 — Snowflake経路のみ実際のCortex COMPLETE生成文（ai_insight_generated_by:\"cortex\"）、それ以外はテンプレート生成文（\"template\"）と明示的にタグ分けする",
+    "AIインサイトも同じ原則 — Snowflake経路は実際のCortex COMPLETE生成文（ai_insight_generated_by:\"cortex\"）、OPENAI_API_KEY設定時はデモ経路のままOpenAI生成文（\"openai\"）、それ以外はテンプレート生成文（\"template\"）と明示的にタグ分けする",
+    "OpenAIはデモ経路への追加強化 — OPENAI_API_KEY設定はsourceフィールドを変えない（MLの計算自体はデモ経路のまま）。API呼び出しが失敗してもアプリは起動失敗せず、その項目だけテンプレート文に静かにフォールバックする（BigQuery/Snowflakeの接続失敗とは異なる契約）",
     "フェイルセーフ — bigquery/snowflake経路で接続に失敗した場合はデモ数値へ静かにフォールバックせず、起動自体を失敗させる",
   ],
 };
@@ -84,13 +86,14 @@ const salesFeatured: FeaturedBlock = {
   badge: "1",
   title: "売上予測（/sales-forecast）",
   body:
-    "チャネル別（オンライン/店舗等）の日次売上を、過去実績から将来へ延長予測します。BigQuery MLでは ARIMA_PLUS（time_series_id_col='channel', auto_arima=TRUE, holiday_region='JP'）、デモ経路では statsmodels の Holt-Winters（ExponentialSmoothing）を各チャネルごとに学習します。",
+    "チャネル別（オンライン/店舗等）の日次売上を、過去実績から将来へ延長予測します。BigQuery MLでは ARIMA_PLUS（time_series_id_col='channel', auto_arima=TRUE, holiday_region='JP'）、Snowflakeでは Cortex ML Functions の SNOWFLAKE.ML.FORECAST（SERIES_COLNAME='channel'）、デモ経路では statsmodels の Holt-Winters（ExponentialSmoothing）を各チャネルごとに学習します。",
   variant: "rag",
   items: [
     "チャネル選択 — プルダウンで対象チャネルを切り替え",
     "予測期間 — horizon_days（既定30日）をドロップダウンで変更可能",
     "グラフ — 実績（history）と予測（forecast）を1本の線で連続表示、予測区間はp10〜p90の80%信頼区間帯（Area）",
     "精度指標 — ホールドアウト（直近14日）でのMAE・RMSEを画面上部に表示",
+    "AIインサイト — 結果を要約する自然文をタグ付きで表示（既定はテンプレート生成、OPENAI_API_KEY設定時はOpenAI生成、Snowflake接続時はCortex COMPLETE生成）",
   ],
 };
 
@@ -98,13 +101,14 @@ const churnFeatured: FeaturedBlock = {
   badge: "2",
   title: "解約予測（/churn）",
   body:
-    "各顧客の今後30日以内の解約確率をスコアリングします。BigQuery MLでは LOGISTIC_REG（input_label_cols=['churned_next_30d'], auto_class_weights=TRUE）、デモ経路では scikit-learn の LogisticRegression（class_weight='balanced'）を使用。ラベルはリーク無しの時点指定特徴量（point-in-time features）から学習しています。",
+    "各顧客の今後30日以内の解約確率をスコアリングします。BigQuery MLでは LOGISTIC_REG（input_label_cols=['churned_next_30d'], auto_class_weights=TRUE）、Snowflakeでは Cortex ML Functions の SNOWFLAKE.ML.CLASSIFICATION、デモ経路では scikit-learn の LogisticRegression（class_weight='balanced'）を使用。ラベルはリーク無しの時点指定特徴量（point-in-time features）から学習しています。",
   variant: "guard",
   items: [
     "リスクフィルタ — min_risk（低・中・高）で絞り込み可能",
     "件数 — limit で表示件数を調整",
     "テーブル — 顧客ID・解約確率・リスク帯（high/medium/low）・プラン種別・地域・在籍日数を一覧表示",
     "精度指標 — ホールドアウトAUC（seed=42実測で約0.69）を画面上部に表示",
+    "AIインサイト — 結果を要約する自然文をタグ付きで表示（既定はテンプレート生成、OPENAI_API_KEY設定時はOpenAI生成、Snowflake接続時はCortex COMPLETE生成）",
   ],
 };
 
@@ -112,13 +116,14 @@ const segmentationFeatured: FeaturedBlock = {
   badge: "3",
   title: "顧客分類（/segmentation）",
   body:
-    "RFM（Recency/Frequency/Monetary）指標をもとに顧客を4クラスタへ分類します。BigQuery MLでは KMEANS（num_clusters=4, standardize_features=TRUE）、デモ経路では StandardScaler + KMeans(4) を使用。クラスタは平均購買額の高い順に「VIP → 優良顧客 → 一般顧客 → 休眠リスク」と一意にラベル付けされます。",
+    "RFM（Recency/Frequency/Monetary）指標をもとに顧客を4クラスタへ分類します。BigQuery MLでは KMEANS（num_clusters=4, standardize_features=TRUE）、Snowflakeでは Cortex ML Functionsにクラスタリング用の組み込み関数がないため Snowpark ML の KMeans、デモ経路では StandardScaler + KMeans(4) を使用。クラスタは平均購買額の高い順に「VIP → 優良顧客 → 一般顧客 → 休眠リスク」と一意にラベル付けされます（3経路とも同じランク方式ラベリングを使用）。",
   variant: "embed",
   items: [
     "散布図 — 横軸recency_days・縦軸monetary_90d、バブルサイズがfrequency_90d（recharts ScatterChart + ZAxis）",
     "クラスタサマリ — 各クラスタのラベル・件数・平均購買額をカード表示",
     "精度指標 — シルエットスコア（seed=42実測で約0.46）を画面上部に表示",
     "顧客テーブル — 各顧客がどのクラスタに属するかを一覧で確認可能",
+    "AIインサイト — 結果を要約する自然文をタグ付きで表示（既定はテンプレート生成、OPENAI_API_KEY設定時はOpenAI生成、Snowflake接続時はCortex COMPLETE生成）",
   ],
 };
 
@@ -126,13 +131,14 @@ const anomalyFeatured: FeaturedBlock = {
   badge: "4",
   title: "異常検知（/anomaly）",
   body:
-    "注文（取引）単位で金額・数量の異常を検知します。BigQuery MLでは AUTOENCODER（hidden_units=[16,8,4,8,16]）+ ML.DETECT_ANOMALIES、デモ経路では scikit-learn の IsolationForest（contamination=0.015）を使用。合成データ生成時に約1.5%の注文へ意図的に3〜5倍の金額/数量異常を混入させており、その再現率をpytestで測定しています。",
+    "注文（取引）単位で金額・数量の異常を検知します。BigQuery MLでは AUTOENCODER（hidden_units=[16,8,4,8,16]）+ ML.DETECT_ANOMALIES、Snowflakeでは（時系列向けのSNOWFLAKE.ML.ANOMALY_DETECTIONは本用途に不適合のため）Snowpark ML の IsolationForest、デモ経路では scikit-learn の IsolationForest（contamination=0.015）を使用。合成データ生成時に約1.5%の注文へ意図的に3〜5倍の金額/数量異常を混入させており、その再現率をpytestで測定しています。",
   variant: "prompt",
   items: [
     "期間フィルタ — window_days で直近N日分に絞り込み",
     "件数 — limit で表示件数を調整",
     "散布図 — 通常（グレー）と異常検知（赤）を色分け表示",
     "精度指標 — 異常スコアのcontamination設定と、混入させた既知異常に対する再現率（seed=42実測で約0.29、無作為検知の約1.5%と比べ約10〜20倍）を画面上部に表示",
+    "AIインサイト — 結果を要約する自然文をタグ付きで表示（既定はテンプレート生成、OPENAI_API_KEY設定時はOpenAI生成、Snowflake接続時はCortex COMPLETE生成）",
   ],
 };
 
@@ -140,13 +146,14 @@ const demandFeatured: FeaturedBlock = {
   badge: "5",
   title: "需要予測（/demand-forecast）",
   body:
-    "商品別の日次販売数量を将来へ延長予測します。BigQuery MLでは ARIMA_PLUS（time_series_id_col='product_id'）、デモ経路では statsmodels の Holt-Winters を商品ごとに学習。コスト対策として売上上位20商品に限定しています（time_series_id_col使用時、系列数に比例して学習コストが増えるため）。",
+    "商品別の日次販売数量を将来へ延長予測します。BigQuery MLでは ARIMA_PLUS（time_series_id_col='product_id'）、Snowflakeでは Cortex ML Functions の SNOWFLAKE.ML.FORECAST（SERIES_COLNAME='product_id'）、デモ経路では statsmodels の Holt-Winters を商品ごとに学習。コスト対策として売上上位20商品に限定しています（time_series_id_col/SERIES_COLNAME使用時、系列数に比例して学習コストが増えるため）。",
   variant: "eval",
   items: [
     "商品選択 — プルダウンで対象商品（上位20商品）を切り替え",
     "予測期間 — horizon_days（既定30日）をドロップダウンで変更可能",
     "グラフ — 売上予測と同じComposedChartパターン（実績・予測・p10/p90信頼区間帯）",
     "除外ルール — 履歴データ点数が一定未満の商品は学習対象から自動的に除外（MIN_HISTORY_POINTS）",
+    "AIインサイト — 結果を要約する自然文をタグ付きで表示（既定はテンプレート生成、OPENAI_API_KEY設定時はOpenAI生成、Snowflake接続時はCortex COMPLETE生成）",
   ],
 };
 
@@ -154,13 +161,13 @@ const deployFeatured: FeaturedBlock = {
   badge: "Deploy",
   title: "Docker Compose / ローカル開発",
   body:
-    "backend / frontend の2コンテナ構成です（PostgreSQL不要 — デモ経路はインメモリ、実経路はBigQuery直結のため）。ローカルポートは他案件との衝突を避けるため8030/3030を使用しています。",
+    "backend / frontend の2コンテナ構成です（PostgreSQL不要 — デモ経路はインメモリ、実経路はBigQueryまたはSnowflake直結のため）。ローカルポートは他案件との衝突を避けるため8030/3030を使用しています。",
   variant: "deploy",
   items: [
     "Compose — docker compose up --build → UI :3030 / API :8030",
     "Backend 単体 — cd backend && uvicorn src.main:app --reload --port 8000（要 Python 3.12venv）",
     "Frontend 単体 — cd frontend && npm run dev",
-    "テスト — cd backend && pytest（合成データに対して49件のテストを実行、外部通信・GCP/Snowflake接続なし）",
+    "テスト — cd backend && pytest（合成データに対して56件のテストを実行、外部通信・GCP/Snowflake/OpenAI接続なし、いずれもモック検証）",
     "Health — /health（execution_modeを含む）· Swagger UI で API 確認",
   ],
 };
@@ -171,6 +178,7 @@ const techStack = [
   "Snowflake Cortex ML Functions（FORECAST/CLASSIFICATION）",
   "Snowpark ML（KMeans/IsolationForest）",
   "Snowflake Cortex LLM（COMPLETE、AIインサイト生成）",
+  "OpenAI Chat Completions（gpt-4o-mini、デモ経路のAIインサイト強化・オプション）",
   "statsmodels · scikit-learn（demo経路）",
   "pandas · numpy（合成データ生成、seed固定）",
   "Next.js 15 · React 19",
@@ -238,7 +246,6 @@ const guideSections: readonly GuideSection[] = [
       segmentationFeatured,
       anomalyFeatured,
       demandFeatured,
-      snowflakeFeatured,
     ].map((f) => ({ title: `${f.badge}. ${f.title}`, body: f.body, items: f.items })),
   },
   {
@@ -250,8 +257,8 @@ const guideSections: readonly GuideSection[] = [
         items: [
           "カード — 各カードをクリックすると該当機能の詳細画面へ遷移",
           "総顧客数・アクティブ顧客数・累計注文数・累計売上を画面上部に表示",
-          "sourceバッジ — デモモードか実BigQuery MLかSnowflakeかを常に明示",
-          "AIインサイト — 各機能ページ上部にCortex/テンプレート生成の要約文をタグ付きで表示",
+          "sourceバッジ — デモモード・実BigQuery ML・実Snowflakeのいずれで動作しているかを常に明示",
+          "AIインサイト — 各機能ページ上部にCortex/OpenAI/テンプレート生成いずれかの要約文をタグ付きで表示",
         ],
       },
     ],
@@ -334,7 +341,7 @@ const guideSections: readonly GuideSection[] = [
         body: "IDE 開発時はサービスを分けて起動できます。",
         items: [
           "Backend — cd backend && uvicorn src.main:app --reload --port 8000（Python 3.12推奨、gcc/gfortran要— statsmodels/scipyのビルドに必要な場合あり）",
-          "テスト — cd backend && pytest -v（49件、合成データに対し外部通信なしで実行）",
+          "テスト — cd backend && pytest -v（56件、合成データに対し外部通信なしで実行）",
           "Frontend — cd frontend && npm install && npm run dev",
           "型チェック/ビルド確認 — npx tsc --noEmit && npm run build",
         ],
@@ -345,7 +352,7 @@ const guideSections: readonly GuideSection[] = [
         items: [
           "BigQuery ML SQL・Snowflake SQL/Snowpark MLコードは未実行・未検証 — 公式構文に基づき作成していますが、実環境での動作確認は利用者側で行ってください",
           "デモ経路の数値は近似 — statsmodels/scikit-learnによる本物の計算ですが、BigQuery MLやSnowflakeモデルと同一の予測精度を保証しません",
-          "デモ経路のAIインサイトはテンプレート生成 — 実際のCortex COMPLETE呼び出しはEXECUTION_MODE=snowflake時のみ",
+          "デモ経路のAIインサイトは既定ではテンプレート生成 — 実際のCortex COMPLETE呼び出しはEXECUTION_MODE=snowflake時のみだが、OPENAI_API_KEYを設定すればデモ経路のままOpenAI生成に切り替えられる（唯一、実アカウント不要でこのセッション内でも動作検証できる経路）",
           "オンライン学習・モデルのバージョニング・Snowflake Model Registry連携は未実装 — 再学習が必要な場合はプロセスの再起動で対応",
           "需要予測は売上上位20商品に限定 — コスト対策のため（time_series_id_col/SERIES_COLNAME使用時、系列数に比例して学習コストが増加）",
           "合成データはseed=42で完全に決定的 — 実データではないため、数値そのものに業務的な意味はない",

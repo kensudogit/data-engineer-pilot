@@ -41,6 +41,20 @@ class Settings(BaseSettings):
     snowflake_cortex_cross_region: str | None = None
     cortex_model: str = "llama3.1-70b"
 
+    # Optional enhancement to the DEMO path only (source stays "demo" either
+    # way — this never changes which ML backend computed the numbers, only
+    # how the narrative ai_insight text is produced). When set, each
+    # service's _prepare_demo() attempts to replace its template-generated
+    # ai_insight with a real OpenAI completion (ai_insight_generated_by
+    # becomes "openai"). Unlike execution_mode=bigquery/snowflake, a failed
+    # or missing key does NOT fail the app at startup — the demo path's ML
+    # computation is fully correct and functional regardless, so a failed
+    # OpenAI call just falls back to the template sentence
+    # (ai_insight_generated_by stays "template", never mislabeled "openai").
+    # See src/ai/openai_client.py.
+    openai_api_key: str | None = None
+    openai_model: str = "gpt-4o-mini"
+
     cors_origins: str = "http://localhost:3030"
 
     # Synthetic dataset generation (see data/synth.py)

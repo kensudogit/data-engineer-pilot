@@ -7,6 +7,7 @@ BigQuery ML、およびSnowflake（Cortex ML Functions・Cortex LLM・Snowpark M
 - **GCPプロジェクト・BigQueryの実行環境、およびSnowflakeアカウントの実行環境は、いずれも未接続です。** 本リポジトリの`bigquery/ddl/*.sql`・`bigquery/ml/*.sql`・`snowflake/ddl/*.sql`・`snowflake/cortex/*.sql`・`snowflake/snowpark_ml/*.py`は、それぞれBigQuery ML／Snowflake Cortex ML Functions・Snowpark MLの公式構文に基づいて作成していますが、実環境での動作検証は行っていません。
 - そのため、**デフォルトでは`EXECUTION_MODE=demo`** で動作し、各機能はBigQuery ML／Snowflakeの代わりにstatsmodels/scikit-learnによる**本物の**近似アルゴリズムを合成データに対してその場で計算します（ハードコードされた偽の数値ではありません）。全APIレスポンスの`source`フィールドで`"demo"`・`"bigquery"`・`"snowflake"`のいずれかが常に明示されます。
 - 各機能の結果を要約する自然文「AIインサイト」（`ai_insight`フィールド）も同じ原則です。`EXECUTION_MODE=snowflake`時のみ実際の`SNOWFLAKE.CORTEX.COMPLETE`呼び出しで生成され（`ai_insight_generated_by: "cortex"`）、それ以外は既に計算済みの指標から組み立てたテンプレート文（`"template"`）で、生成AIが書いたかのような文言は使っていません。
+- **`EXECUTION_MODE=demo`（既定）でも、`OPENAI_API_KEY`を設定するとAIインサイトだけを実際のOpenAI生成文に置き換えられます**（`ai_insight_generated_by: "openai"`）。これは`source`フィールドには影響しません（ML計算はデモ経路のまま、あくまでテキスト生成だけの追加強化です）。`EXECUTION_MODE=bigquery`/`snowflake`の接続失敗とは異なり、OpenAI呼び出しの失敗はアプリを起動失敗させず、その項目だけテンプレート文にフォールバックします（詳細はセクション5・8参照）。
 - `EXECUTION_MODE=bigquery`または`EXECUTION_MODE=snowflake`で接続に失敗した場合は**起動時に失敗します**（デモ数値への静かなフォールバックはしません）。
 
 ## 1. 要件整理
@@ -107,6 +108,15 @@ Source Systems → Ingestion → BigQuery または Snowflake
 
 デモモードでの近似実装（`backend/src/services/*.py`）: 売上/需要予測はstatsmodels `ExponentialSmoothing`（Holt-Winters）、解約予測はscikit-learn `LogisticRegression`（ホールドアウトAUC評価）、顧客分類は`KMeans`（シルエットスコア評価）、異常検知は`IsolationForest`（合成データに混入させた既知異常に対する再現率で評価）。AIインサイトは既に計算済みの指標から組み立てたテンプレート文（`ai_insight_generated_by: "template"`）。
 
+### OpenAIによるAIインサイト強化（オプション、デモ経路専用）
+
+`OPENAI_API_KEY`を設定すると、デモ経路（`EXECUTION_MODE=demo`）のまま、AIインサイトだけを実際のOpenAI Chat Completions API（既定モデル: `gpt-4o-mini`、`OPENAI_MODEL`で変更可）による生成文に置き換えられます（`ai_insight_generated_by: "openai"`）。実装は`backend/src/ai/`配下:
+
+- `backend/src/ai/prompts.py` — プロンプト生成関数（`build_prompt_churn`等）。Snowflake Cortex経路（`backend/src/snowflake/cortex/insight.py`）と共通利用しており、どちらの生成AIバックエンドを使うかに関わらず同じプロンプト文言を使う設計です
+- `backend/src/ai/openai_client.py` — `generate_insight()`（実際のAPI呼び出し）と`enhance_with_openai()`（各serviceが呼ぶ唯一の呼び出し口。キー未設定時・API呼び出し失敗時はいずれもテンプレート文へフォールバックし、`ai_insight_generated_by`を`"template"`のまま維持）
+
+`EXECUTION_MODE=bigquery`/`snowflake`の接続失敗とは意図的に異なる契約です。`OPENAI_API_KEY`は`source`フィールドを一切変更しません（MLの計算結果はデモ経路のまま正しく動作し続けるため）。そのためOpenAI呼び出しの失敗はアプリ全体を起動失敗させず、その項目のAIインサイトだけが静かにテンプレート文へ戻ります（ログには警告を出力）。「本物っぽく見えるが実は違う」を防ぐという同じ原則は、`ai_insight_generated_by`フィールドが常に正確であることによって別の形で担保しています。
+
 ## 6. ETL/ELT
 
 Extract → Load → RAW → Transform → STAGING → DWH → DATA MART（BigQuery/SnowflakeともにELT方式）。合成データをBigQueryへ投入する場合は`backend/scripts/provision_bigquery.py`、Snowflakeへ投入する場合は`backend/scripts/provision_snowflake.py`を使用します（下記デプロイ方法参照）。
@@ -115,8 +125,8 @@ Extract → Load → RAW → Transform → STAGING → DWH → DATA MART（BigQu
 
 - 本番でBigQuery Service Accountを使う場合は必要最小限の権限（BigQuery Data Editor + Job User程度）に絞ってください
 - Snowflakeでは、Cortex LLM/ML Functionsを呼び出す実行ロールに`SNOWFLAKE.CORTEX_USER`データベースロールを付与し、Cortex ML Functionsオブジェクトの作成には該当スキーマへの`CREATE SNOWFLAKE.ML.<TYPE>`権限が必要です。今回はユーザー名/パスワード認証のみに対応（本番ではキーペア/OAuth認証がSnowflake推奨）
-- `GOOGLE_APPLICATION_CREDENTIALS`・`SNOWFLAKE_PASSWORD`はコミットしない（`.gitignore`で`.env`除外済み）
-- 個人情報に相当するフィールドは合成データにも含めていません（顧客IDは連番、実在の氏名等は生成しません）。Cortex LLMへのプロンプトも既に計算済みの集計指標のみを渡し、生の顧客行やPIIは一切含めません
+- `GOOGLE_APPLICATION_CREDENTIALS`・`SNOWFLAKE_PASSWORD`・`OPENAI_API_KEY`はコミットしない（`.gitignore`で`.env`除外済み）
+- 個人情報に相当するフィールドは合成データにも含めていません（顧客IDは連番、実在の氏名等は生成しません）。Cortex LLM・OpenAIいずれへのプロンプトも既に計算済みの集計指標のみを渡し、生の顧客行やPIIは一切含めません
 
 ## 8. コスト対策
 
@@ -124,7 +134,7 @@ Extract → Load → RAW → Transform → STAGING → DWH → DATA MART（BigQu
 - `AUTOENCODER`の`max_iterations=20`・`hidden_units`を小さく抑制
 - SQLは`SELECT *`を避け、必要な列のみを指定
 - 大きなfactテーブルは全て`PARTITION BY`済みのため、実運用でのクエリはパーティションフィルタを付けること（BigQuery側のみ。Snowflakeはバイトスキャン課金ではなくウェアハウス秒課金のため、この規模のテーブルでは`CLUSTER BY`を意図的に付与していません）
-- Cortex LLM COMPLETEによるAIインサイト生成はリクエスト毎ではなく`prepare()`時（起動時、ユースケースあたり1回）にのみ実行し、Cortexクレジット消費とレイテンシを抑制
+- Cortex LLM COMPLETE・OpenAI Chat Completionsによるインサイト生成はいずれもリクエスト毎ではなく`prepare()`時（起動時）にのみ実行し、クレジット/トークン消費とレイテンシを抑制。ただし売上予測（チャネル数分）・需要予測（最大20商品分）はチャネル/商品ごとに1回ずつ呼ぶため、`OPENAI_API_KEY`設定時は起動時に合計最大27回程度のAPI呼び出しが発生する点に注意（`gpt-4o-mini`のような低コストモデルの利用を推奨）
 
 ## 9. テスト方法
 
@@ -134,7 +144,7 @@ python -m venv .venv && .venv/Scripts/pip install -r requirements.txt   # Window
 pytest -v
 ```
 
-49件のテストで、合成データの季節性/トレンド/異常値混入率/再現性、各サービスの精度指標（解約AUC>0.6、分類シルエット>0.3、異常検知再現率>0.15 — いずれもseed=42での実測値に基づく現実的な閾値）、APIエンドポイントの疎通と`source`フィールド、`EXECUTION_MODE=snowflake`時の未設定フェイルセーフ（`SnowflakeNotConfiguredError`）、デモモードの`ai_insight`がテンプレート生成である（`ai_insight_generated_by=="template"`）ことを検証しています。
+56件のテストで、合成データの季節性/トレンド/異常値混入率/再現性、各サービスの精度指標（解約AUC>0.6、分類シルエット>0.3、異常検知再現率>0.15 — いずれもseed=42での実測値に基づく現実的な閾値）、APIエンドポイントの疎通と`source`フィールド、`EXECUTION_MODE=snowflake`時の未設定フェイルセーフ（`SnowflakeNotConfiguredError`）、デモモードの`ai_insight`がテンプレート生成である（`ai_insight_generated_by=="template"`）こと、および`OPENAI_API_KEY`設定時のOpenAI生成成功パス・失敗時のテンプレートへのフォールバックパス（いずれも`unittest.mock`でOpenAI API呼び出しをモック、実際のネットワーク通信は行わない）を検証しています。
 
 フロントエンド:
 
@@ -200,6 +210,6 @@ docker compose up --build
 - BigQuery ML SQL・Snowflake SQL/Snowpark MLコードはいずれも未実行・未検証（実環境での確認は利用者側で行ってください）。特にSnowflake Cortex ML Functionsは比較的新しいAPI面のため、`CONFIG_OBJECT`等の細かい引数名は実行前に最新のSnowflake公式ドキュメントで再確認することを推奨します
 - npmの依存関係（Next.jsが内部で使うpostcss/sharp）に既知の脆弱性報告がありますが、`next/image`未使用・外部CSS非使用のため実害は限定的です（Next.js 16系への破壊的アップグレードが必要なため見送り）
 - デモモードのアルゴリズムはBigQuery ML/Snowflakeモデルの近似であり、同一の予測精度を保証しません
-- デモモードのAIインサイトはテンプレート生成文であり、実際のCortex COMPLETEが生成した文章ではありません（`EXECUTION_MODE=snowflake`時のみ実生成）
+- デモモードのAIインサイトは既定ではテンプレート生成文であり、実際のCortex COMPLETEが生成した文章ではありません（`EXECUTION_MODE=snowflake`時のみ実生成）。ただし`OPENAI_API_KEY`を設定すれば、デモ経路のままAIインサイトだけは実際のOpenAI生成文に切り替わります — BigQuery ML/Snowflakeとは異なり、この経路は実アカウント不要で今回のセッション内でも動作検証が可能です
 - オンライン学習・モデルのバージョニング・Snowflake Model Registry連携は未実装です
 - Snowflakeのキーペア/OAuth認証には対応していません（ユーザー名/パスワード認証のみ）

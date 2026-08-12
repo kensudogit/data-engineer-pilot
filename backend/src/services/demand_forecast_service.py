@@ -35,8 +35,10 @@ class DemandForecastState:
     metrics: dict[str, dict[str, float]]
     # Keyed by product_id — same "computed once at prepare()-time, not
     # per-request" rule as sales_forecast_service.SalesForecastState.
+    # ai_insight_generated_by is per-product too, same reasoning as
+    # sales_forecast_service (independent OpenAI success/failure per item).
     ai_insights: dict[str, str]
-    ai_insight_generated_by: Literal["template", "cortex"]
+    ai_insight_generated_by: dict[str, Literal["template", "cortex", "openai"]]
     source: Literal["demo", "snowflake"]
 
 
@@ -50,18 +52,28 @@ def prepare(dataset: SyntheticDataset) -> DemandForecastState:
     settings = get_settings()
     if settings.execution_mode == "snowflake":
         return _prepare_snowflake(dataset, settings)
-    return _prepare_demo(dataset)
+    return _prepare_demo(dataset, settings)
 
 
-def _prepare_demo(dataset: SyntheticDataset) -> DemandForecastState:
+def _prepare_demo(dataset: SyntheticDataset, settings: Settings) -> DemandForecastState:
     """Fits one Holt-Winters model per (already top-N-limited) product once,
-    at startup — see features.daily_product_demand for the top-N filter."""
+    at startup — see features.daily_product_demand for the top-N filter.
+
+    If OPENAI_API_KEY is set, this also means up to 20 OpenAI calls at
+    startup (one per top-N product) — acceptable for a pilot with
+    gpt-4o-mini, but worth knowing if you're watching API usage; see
+    README's cost note.
+    """
+    from src.ai.openai_client import enhance_with_openai  # noqa: PLC0415
+    from src.ai.prompts import build_prompt_demand_forecast  # noqa: PLC0415
+
     demand = features.daily_product_demand(dataset)
     product_names = dataset.products.set_index("product_id")["name"]
 
     products: dict[str, ProductSeries] = {}
     metrics: dict[str, dict[str, float]] = {}
     ai_insights: dict[str, str] = {}
+    ai_insight_generated_by: dict[str, Literal["template", "cortex", "openai"]] = {}
 
     for product_id in sorted(demand["product_id"].unique()):
         sub = demand[demand["product_id"] == product_id].sort_values("order_date")
@@ -82,13 +94,20 @@ def _prepare_demo(dataset: SyntheticDataset) -> DemandForecastState:
         name = product_names.get(product_id, product_id)
         products[product_id] = ProductSeries(product_id=product_id, name=name, history=series, fitted=full_model)
         metrics[product_id] = {"mae": round(mae, 2), "rmse": round(rmse, 2)}
-        ai_insights[product_id] = (
+        template_insight = (
             f"{name}の需要をHolt-Wintersモデルで予測しました（ホールドアウトMAE {mae:.1f}個）。"
             f"計算コストの都合で上位20商品に限定しています。"
         )
+        ai_insights[product_id], ai_insight_generated_by[product_id] = enhance_with_openai(
+            template_insight, build_prompt_demand_forecast(name, HOLDOUT_DAYS, mae), settings
+        )
 
     return DemandForecastState(
-        products=products, metrics=metrics, ai_insights=ai_insights, ai_insight_generated_by="template", source="demo"
+        products=products,
+        metrics=metrics,
+        ai_insights=ai_insights,
+        ai_insight_generated_by=ai_insight_generated_by,
+        source="demo",
     )
 
 
@@ -114,6 +133,7 @@ def _prepare_snowflake(dataset: SyntheticDataset, settings: Settings) -> DemandF
     products: dict[str, ProductSeries] = {}
     metrics: dict[str, dict[str, float]] = {}
     ai_insights: dict[str, str] = {}
+    ai_insight_generated_by: dict[str, Literal["template", "cortex", "openai"]] = {}
 
     for product_id in sorted(history_df["product_id"].unique()):
         sub = history_df[history_df["product_id"] == product_id].sort_values("order_date")
@@ -130,9 +150,14 @@ def _prepare_snowflake(dataset: SyntheticDataset, settings: Settings) -> DemandF
         ai_insights[product_id] = generate_insight(
             session, build_prompt_demand_forecast(name, HOLDOUT_DAYS, mae), settings.cortex_model
         )
+        ai_insight_generated_by[product_id] = "cortex"
 
     return DemandForecastState(
-        products=products, metrics=metrics, ai_insights=ai_insights, ai_insight_generated_by="cortex", source="snowflake"
+        products=products,
+        metrics=metrics,
+        ai_insights=ai_insights,
+        ai_insight_generated_by=ai_insight_generated_by,
+        source="snowflake",
     )
 
 
@@ -200,5 +225,5 @@ def forecast(state: DemandForecastState, product_id: str, horizon_days: int = HO
         forecast=forecast_points,
         metrics=state.metrics[product_id],
         ai_insight=state.ai_insights.get(product_id),
-        ai_insight_generated_by=state.ai_insight_generated_by,
+        ai_insight_generated_by=state.ai_insight_generated_by.get(product_id),
     )

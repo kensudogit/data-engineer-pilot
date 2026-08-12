@@ -58,10 +58,10 @@ def prepare(dataset: SyntheticDataset) -> SegmentationState:
     settings = get_settings()
     if settings.execution_mode == "snowflake":
         return _prepare_snowflake(dataset, settings)
-    return _prepare_demo(dataset)
+    return _prepare_demo(dataset, settings)
 
 
-def _prepare_demo(dataset: SyntheticDataset) -> SegmentationState:
+def _prepare_demo(dataset: SyntheticDataset, settings: Settings) -> SegmentationState:
     snapshot = features.customer_features(dataset, dataset.as_of_date)
     X = snapshot[FEATURE_COLS]
 
@@ -77,9 +77,15 @@ def _prepare_demo(dataset: SyntheticDataset) -> SegmentationState:
     cluster_labels = _label_clusters(centers)
 
     cluster_sizes = {cluster_labels[cid]: int(len(g)) for cid, g in result.groupby("cluster_id")}
-    ai_insight = (
+    template_insight = (
         f"シルエットスコア{sil:.2f}のKMeans（4クラスタ）で顧客を分類し、消費額の高い順に"
         f"{'・'.join(f'{label}({size}件)' for label, size in cluster_sizes.items())}とラベル付けしました。"
+    )
+    from src.ai.openai_client import enhance_with_openai  # noqa: PLC0415
+    from src.ai.prompts import build_prompt_segmentation  # noqa: PLC0415
+
+    ai_insight, ai_insight_generated_by = enhance_with_openai(
+        template_insight, build_prompt_segmentation(sil, cluster_sizes), settings
     )
 
     return SegmentationState(
@@ -87,7 +93,7 @@ def _prepare_demo(dataset: SyntheticDataset) -> SegmentationState:
         cluster_labels=cluster_labels,
         metrics={"silhouette_score": round(sil, 4)},
         ai_insight=ai_insight,
-        ai_insight_generated_by="template",
+        ai_insight_generated_by=ai_insight_generated_by,
         source="demo",
     )
 

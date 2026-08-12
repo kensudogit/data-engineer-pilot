@@ -22,6 +22,12 @@
   border: 1px solid #a8e6fb;
 }
 
+.openai {
+  background: #e0f8ec;
+  color: #0f7a45;
+  border: 1px solid #a9ecc6;
+}
+
 .template {
   background: #f1f5f9;
   color: #475569;

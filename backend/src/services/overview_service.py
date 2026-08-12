@@ -47,12 +47,19 @@ def prepare(
             settings.cortex_model,
         )
     else:
+        from src.ai.openai_client import enhance_with_openai  # noqa: PLC0415
+        from src.ai.prompts import build_prompt_overview  # noqa: PLC0415
+
         source = settings.execution_mode  # "demo" or "bigquery"
-        ai_insight_generated_by = "template"
-        ai_insight = (
+        template_insight = (
             f"顧客{total_customers}件・累計売上¥{total_revenue:,.0f}のデータに対し、"
             f"解約予測(AUC {auc:.2f})・顧客分類(シルエット{silhouette:.2f})・"
             f"異常検知(想定異常率{contamination * 100:.1f}%)の3モデルを学習済みです。"
+        )
+        ai_insight, ai_insight_generated_by = enhance_with_openai(
+            template_insight,
+            build_prompt_overview(total_customers, total_revenue, auc, silhouette, contamination),
+            settings,
         )
 
     summaries = [

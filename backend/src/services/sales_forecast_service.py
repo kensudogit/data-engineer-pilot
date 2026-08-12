@@ -35,8 +35,11 @@ class SalesForecastState:
     # DEFAULT_HORIZON_DAYS regardless of what horizon_days a caller later
     # requests) rather than per-request, so a real Cortex COMPLETE call
     # never fires on the request path. See forecast()'s use of this.
+    # ai_insight_generated_by is per-channel too (not a single state-wide
+    # value) since an OpenAI call can succeed for one channel and fail for
+    # another — each channel's provenance must stay independently accurate.
     ai_insights: dict[str, str]
-    ai_insight_generated_by: Literal["template", "cortex"]
+    ai_insight_generated_by: dict[str, Literal["template", "cortex", "openai"]]
     # "snowflake" state carries no fitted statsmodels object (ChannelSeries.
     # fitted is None) — forecast() branches on this to call the live
     # sales_forecast_model!FORECAST() serving query per request instead
@@ -57,16 +60,20 @@ def prepare(dataset: SyntheticDataset) -> SalesForecastState:
     settings = get_settings()
     if settings.execution_mode == "snowflake":
         return _prepare_snowflake(dataset, settings)
-    return _prepare_demo(dataset)
+    return _prepare_demo(dataset, settings)
 
 
-def _prepare_demo(dataset: SyntheticDataset) -> SalesForecastState:
+def _prepare_demo(dataset: SyntheticDataset, settings: Settings) -> SalesForecastState:
     """Trains one Holt-Winters model per channel once, at startup — services
     never refit per-request (see the plan's dataset-consistency note)."""
+    from src.ai.openai_client import enhance_with_openai  # noqa: PLC0415
+    from src.ai.prompts import build_prompt_sales_forecast  # noqa: PLC0415
+
     daily = features.daily_sales(dataset)
     channels: dict[str, ChannelSeries] = {}
     metrics: dict[str, dict[str, float]] = {}
     ai_insights: dict[str, str] = {}
+    ai_insight_generated_by: dict[str, Literal["template", "cortex", "openai"]] = {}
 
     for channel in sorted(daily["channel"].unique()):
         sub = daily[daily["channel"] == channel].sort_values("order_date")
@@ -83,13 +90,20 @@ def _prepare_demo(dataset: SyntheticDataset) -> SalesForecastState:
         full_model = _fit_series(series)
         channels[channel] = ChannelSeries(history=series, fitted=full_model)
         metrics[channel] = {"mae": round(mae, 2), "rmse": round(rmse, 2)}
-        ai_insights[channel] = (
+        template_insight = (
             f"直近{HOLDOUT_DAYS}日のホールドアウト検証でMAE {mae:,.0f}円・RMSE {rmse:,.0f}円のHolt-Wintersモデルにより、"
             f"{channel}チャネルの今後{DEFAULT_HORIZON_DAYS}日間の売上を予測しました。"
         )
+        ai_insights[channel], ai_insight_generated_by[channel] = enhance_with_openai(
+            template_insight, build_prompt_sales_forecast(channel, DEFAULT_HORIZON_DAYS, mae, rmse), settings
+        )
 
     return SalesForecastState(
-        channels=channels, metrics=metrics, ai_insights=ai_insights, ai_insight_generated_by="template", source="demo"
+        channels=channels,
+        metrics=metrics,
+        ai_insights=ai_insights,
+        ai_insight_generated_by=ai_insight_generated_by,
+        source="demo",
     )
 
 
@@ -117,6 +131,7 @@ def _prepare_snowflake(dataset: SyntheticDataset, settings: Settings) -> SalesFo
     channels: dict[str, ChannelSeries] = {}
     metrics: dict[str, dict[str, float]] = {}
     ai_insights: dict[str, str] = {}
+    ai_insight_generated_by: dict[str, Literal["template", "cortex", "openai"]] = {}
 
     for channel in sorted(history_df["channel"].unique()):
         sub = history_df[history_df["channel"] == channel].sort_values("order_date")
@@ -134,9 +149,14 @@ def _prepare_snowflake(dataset: SyntheticDataset, settings: Settings) -> SalesFo
             build_prompt_sales_forecast(channel, DEFAULT_HORIZON_DAYS, mae, rmse),
             settings.cortex_model,
         )
+        ai_insight_generated_by[channel] = "cortex"
 
     return SalesForecastState(
-        channels=channels, metrics=metrics, ai_insights=ai_insights, ai_insight_generated_by="cortex", source="snowflake"
+        channels=channels,
+        metrics=metrics,
+        ai_insights=ai_insights,
+        ai_insight_generated_by=ai_insight_generated_by,
+        source="snowflake",
     )
 
 
@@ -202,5 +222,5 @@ def forecast(state: SalesForecastState, channel: str, horizon_days: int = DEFAUL
         forecast=forecast_points,
         metrics=state.metrics[channel],
         ai_insight=state.ai_insights.get(channel),
-        ai_insight_generated_by=state.ai_insight_generated_by,
+        ai_insight_generated_by=state.ai_insight_generated_by.get(channel),
     )

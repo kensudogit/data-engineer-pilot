@@ -4,7 +4,7 @@ export interface Sourced {
   source: Source;
   model: string;
   ai_insight: string | null;
-  ai_insight_generated_by: "template" | "cortex" | null;
+  ai_insight_generated_by: "template" | "cortex" | "openai" | null;
 }
 
 export interface TimeSeriesPoint {

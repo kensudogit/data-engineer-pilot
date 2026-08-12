@@ -36,10 +36,10 @@ def prepare(dataset: SyntheticDataset) -> AnomalyState:
     settings = get_settings()
     if settings.execution_mode == "snowflake":
         return _prepare_snowflake(dataset, settings)
-    return _prepare_demo(dataset)
+    return _prepare_demo(dataset, settings)
 
 
-def _prepare_demo(dataset: SyntheticDataset) -> AnomalyState:
+def _prepare_demo(dataset: SyntheticDataset, settings: Settings) -> AnomalyState:
     txns = features.order_transaction_features(dataset)
     X = txns[FEATURE_COLS].fillna(0.0)
 
@@ -62,13 +62,20 @@ def _prepare_demo(dataset: SyntheticDataset) -> AnomalyState:
 
     detected_count = int(result["is_anomaly"].sum())
     recall_text = f"注入検証用異常に対する再現率は{recall * 100:.1f}%です。" if recall is not None else ""
-    ai_insight = (
+    template_insight = (
         f"IsolationForest（想定異常率{CONTAMINATION * 100:.1f}%）により{detected_count}件の取引を"
         f"異常スコアリングしました。{recall_text}"
     )
+    from src.ai.openai_client import enhance_with_openai  # noqa: PLC0415
+    from src.ai.prompts import build_prompt_anomaly  # noqa: PLC0415
+
+    ai_insight, ai_insight_generated_by = enhance_with_openai(
+        template_insight, build_prompt_anomaly(CONTAMINATION, detected_count, recall), settings
+    )
 
     return AnomalyState(
-        orders=result, metrics=metrics, ai_insight=ai_insight, ai_insight_generated_by="template", source="demo"
+        orders=result, metrics=metrics, ai_insight=ai_insight, ai_insight_generated_by=ai_insight_generated_by,
+        source="demo",
     )
 
 

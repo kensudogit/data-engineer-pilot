@@ -16,16 +16,19 @@ class SourcedModel(BaseModel):
     unset — there's nothing to narrate. `ai_insight_generated_by` discloses
     how the text was produced: "cortex" only when a real
     SNOWFLAKE.CORTEX.COMPLETE call produced it (execution_mode="snowflake");
-    "template" for the demo/bigquery paths, where it's assembled from
-    already-computed metrics by an f-string, never phrased as if an AI
-    wrote it — the same "never let a fake result look real" principle the
-    `source` field enforces, applied to text instead of numbers.
+    "openai" only when a real OpenAI chat completion produced it (an
+    optional enhancement to the demo path when OPENAI_API_KEY is set — see
+    config.py's openai_api_key docstring); "template" otherwise, where it's
+    assembled from already-computed metrics by an f-string, never phrased
+    as if an AI wrote it — the same "never let a fake result look real"
+    principle the `source` field enforces, applied to text instead of
+    numbers.
     """
 
     source: Literal["demo", "bigquery", "snowflake"]
     model: str
     ai_insight: str | None = None
-    ai_insight_generated_by: Literal["template", "cortex"] | None = None
+    ai_insight_generated_by: Literal["template", "cortex", "openai"] | None = None
 
 
 class Metrics(BaseModel):
